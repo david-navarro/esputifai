@@ -17,6 +17,9 @@ android {
     compileSdk {
         version = release(37) { minorApiLevel = 2 }
     }
+    // Same build-tools as installed in docker/android-build.Dockerfile; without this AGP picks its
+    // default (36.0.0) and, before sdkDownload=false, silently downloaded it on every build.
+    buildToolsVersion = "37.0.0"
 
     defaultConfig {
         applicationId = "dev.personal.music"

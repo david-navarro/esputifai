@@ -2,7 +2,8 @@
 [versions]
 agp = "9.5.0"
 kotlin = "2.4.21"
-newpipe-extractor = "v0.27.0"
+# Pinned to the commit of tag v0.27.0: JitPack tags can be moved, commits can't.
+newpipe-extractor = "7d4d691846acfa3c5af4b2c124955ee4c11cd3e8"
 desugar = "2.1.5"
 okhttp = "5.5.1"
 media3 = "1.11.1"

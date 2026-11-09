@@ -123,6 +123,24 @@ How: `OfflineAudio` owns a `SimpleCache` (`files/offline-audio`, no eviction) an
 3. If NewPipe changed how it requests streams, compare `StreamRequests.kt` with NewPipe's `app/src/main/java/org/schabi/newpipe/player/datasource/YoutubeHttpDataSource.java` (`makeConnection`), and the UA in `OkHttpDownloader.USER_AGENT` with NewPipe's `DownloaderImpl.USER_AGENT`.
 4. If dependencies demand a newer compileSdk, check available platforms in `https://dl.google.com/android/repository/repository2-3.xml` and update both the Dockerfile and `compileSdk`.
 
+## Pinned versions and supply chain
+
+Every input of the build is pinned, so the same commit always builds from the same bits:
+
+- **Direct dependencies and plugins:** exact versions in `android/gradle/libs.versions.toml`. NewPipeExtractor is pinned to the **commit** of its release tag (JitPack tags can be moved); its nanojson fork already comes by commit.
+- **Every artifact, transitive ones and plugins included:** SHA-256 in `android/gradle/verification-metadata.xml` (Gradle dependency verification). A changed version or a tampered file fails the build with "Dependency verification failed".
+- **JitPack** may only serve `com.github.TeamNewPipe` artifacts, and those only come from there (`exclusiveContent` in `settings.gradle.kts`).
+- **Gradle** distribution checked by `distributionSha256Sum` in `gradle-wrapper.properties`; `gradle-wrapper.jar` matches the official one for 9.8.2.
+- **Build image:** base image by digest, SDK command line tools by SHA-256, SDK packages by version (`docker/android-build.Dockerfile`). `android.builder.sdkDownload=false` stops AGP from downloading SDK components on its own (it used to fetch build-tools 36.0.0 silently; now `buildToolsVersion` names the installed 37.0.0).
+
+**Updating a dependency:** change its version in `libs.versions.toml`, then regenerate the checksums and review the diff of `verification-metadata.xml` before committing:
+
+```bash
+scripts/build-apk.sh --write-verification-metadata sha256 assembleRelease testDebugUnitTest
+```
+
+**Known vulnerabilities:** only critical CVEs are patched (owner's policy), checked against [OSV](https://osv.dev) for the APK's and the build's dependencies. As of 2026-11-09 the only critical one was CVE-2026-8763 in Bouncy Castle < 1.85, which AGP uses for signing (build only, not in the APK); `android/build.gradle.kts` forces 1.85. Drop that override once AGP ships a fixed version.
+
 ## Roadmap
 
 Proposed order, agreed in principle with the owner (exact scope of each step to confirm when starting it):
@@ -178,6 +196,7 @@ This is an independent personal project, not affiliated with YouTube, Google or 
 
 - **2026-11-07:** Started as a FastAPI backend (ytmusicapi search + yt-dlp ranged audio proxy, Subsonic API layer for Symfonium/Tempo). The owner found the server + third-party client setup confusing and wanted a self-contained app, so the backend was stopped and deleted the same day. Lessons kept: YouTube stream URLs from yt-dlp's TV client return 403 until their `available_at` time, and googlevideo URLs are IP-locked, so on-device resolution avoids both issues.
 - **2026-11-07:** Android app v0.1.0 (this repo).
+- **2026-11-09:** Supply chain hardening: Gradle dependency verification (SHA-256 for all artifacts), NewPipeExtractor pinned by commit, JitPack restricted to NewPipe, Gradle and build image pinned by checksum/digest, no SDK auto-download, Bouncy Castle 1.85 in the build classpath (critical CVE-2026-8763).
 - **2026-11-07:** v0.4.0: related songs under song results, active list for one-tap "+", album and artist search, artist page, Albumteca (save offline, sort by plays/A-Z/Z-A). Persistence refactored into `JsonStore`.
 - **2026-11-07:** v0.3.3: app name written "Esputifai" (not all caps).
 - **2026-11-07:** v0.3.2: back to standard (v0.1.0) sizes: app-wide zoom removed, one-row player, default buttons, icons and text styles. Features unchanged.
