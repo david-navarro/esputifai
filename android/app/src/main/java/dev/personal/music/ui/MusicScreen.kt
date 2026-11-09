@@ -110,6 +110,8 @@ fun MusicScreen(vm: MusicViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     var addingTrack by remember { mutableStateOf<Track?>(null) }
     var songMenu by remember { mutableStateOf<Track?>(null) }
+    var showingPlayer by remember { mutableStateOf(false) }
+    val queue by vm.queue.collectAsStateWithLifecycle()
     var albumLookup by remember { mutableStateOf(AlbumLookup.Idle) }
     val openSongMenu: (Track) -> Unit = {
         albumLookup = AlbumLookup.Idle
@@ -178,6 +180,7 @@ fun MusicScreen(vm: MusicViewModel) {
                         onAdd = { songs.onAdd(np.toTrack()) },
                         onChooseLists = { addingTrack = np.toTrack() },
                         onLongPress = { openSongMenu(np.toTrack()) },
+                        onOpen = { showingPlayer = true },
                     )
                 }
                 NavigationBar {
@@ -332,6 +335,27 @@ fun MusicScreen(vm: MusicViewModel) {
 
     }
 
+    val np = nowPlaying
+    if (showingPlayer && np != null) {
+        // The sheet is outside the Scaffold's providers, and its song rows need them too.
+        CompositionLocalProvider(LocalPlays provides plays, LocalSongMenu provides openSongMenu) {
+            NowPlayingSheet(
+                np = np,
+                queue = queue,
+                onSeek = { vm.seekTo(it) },
+                onToggle = vm::togglePlayPause,
+                onNext = { vm.next() },
+                onPrevious = { vm.previous() },
+                onPlayItem = vm::playQueueItem,
+                onMove = { from, to -> vm.moveInQueue(from, to) },
+                onRemove = { vm.removeFromQueue(it) },
+                onDismiss = { showingPlayer = false },
+            )
+        }
+    } else if (showingPlayer) {
+        showingPlayer = false // the queue was emptied
+    }
+
     incoming?.let { shared ->
         AlertDialog(
             onDismissRequest = vm::dismissIncoming,
@@ -367,6 +391,7 @@ fun MusicScreen(vm: MusicViewModel) {
                         albumLookup = AlbumLookup.NotFound
                     } else {
                         songMenu = null
+                        showingPlayer = false
                         push(Route.AlbumPage(album))
                     }
                 }
@@ -409,6 +434,7 @@ private fun PlayerBar(
     onAdd: () -> Unit,
     onChooseLists: () -> Unit,
     onLongPress: () -> Unit,
+    onOpen: () -> Unit,
 ) {
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -420,7 +446,7 @@ private fun PlayerBar(
             ) {
                 Artwork(np.artworkUri?.toString(), 44)
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f).combinedClickable(onClick = {}, onLongClick = onLongPress)) {
+                Column(Modifier.weight(1f).combinedClickable(onClick = onOpen, onLongClick = onLongPress)) {
                     Text(np.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                     Text(
                         np.error?.let { if (online) "No se puede reproducir: $it" else "Sin internet y no está guardada en el móvil" }

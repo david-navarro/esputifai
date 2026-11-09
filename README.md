@@ -6,6 +6,7 @@ A personal, serverless Android music player backed by YouTube Music. The phone t
 
 - **v0.1.0** (search → play → background playback with notification/lock-screen controls) confirmed working on the phone by the owner.
 - **v0.2.0** (local playlists, bigger UI) confirmed working on the phone by the owner. 
+- **v0.6.0 not yet confirmed on a device:** R8 shrinking (APK 17.6 → 3.6 MB; NewPipe's reflection must still work: search and play), "Reproduciendo" panel with seek bar and queue.
 - **v0.5.1 not yet confirmed on a device:** plays count only when a song ends, tapping the playing song doesn't restart it, long press on a song → "Ir al álbum", share playlists by link (see below).
 - **v0.5.0 not yet confirmed on a device:** search autocomplete, play counter on every song, "Top" tab (see below).
 - **v0.4.0 not yet confirmed on a device:** related songs, active list, album/artist search, Albumteca (see below).
@@ -92,7 +93,7 @@ Install by copying the APK to the phone and opening it (sideloading; allow "inst
 - *Serverless.* The owner explicitly wants the app not to depend on a server (a FastAPI + yt-dlp backend existed briefly and was deleted, see History).
 - *NewPipeExtractor* rather than a hand-written InnerTube client: YouTube changes signatures, clients and PO-token rules every few weeks, and the NewPipe team tracks that. Our job on breakage is to bump the version.
 - *Progressive + custom DataSource* rather than NewPipe's progressive-DASH-manifest approach: lazy per-track resolution fits a queue naturally, and the chunking gives the same anti-throttling benefit. Revisit if seeking or throttling misbehave.
-- *No R8/minify* yet: NewPipeExtractor (Rhino, jsoup…) needs keep rules. The APK is ~17 MB. Fine for now.
+- *R8 since v0.6.0* (`isMinifyEnabled`, `isShrinkResources`, no obfuscation for readable stack traces): the APK went from 17.6 to 3.6 MB, mostly unused Material icons. `proguard-rules.pro` keeps what R8 can't see: Rhino (runs YouTube's player JavaScript, loads classes by reflection), NewPipe's date patterns, protobuf-lite message fields. If something works in debug but not in release, suspect a missing keep rule first.
 
 **Versions** (`gradle/libs.versions.toml`) mirror NewPipe's own `dev` build of Nov 2026 so they are known to compile together: AGP 9.5.0 (built-in Kotlin, so no `kotlin-android` plugin), Kotlin 2.4.21 (compose plugin), Gradle 9.8.2, JDK 21 toolchain. compileSdk **37.2** (late-2026 AndroidX/OkHttp require it), targetSdk 36, minSdk 26. Media3 1.11.1, Compose BOM 2026.09.00, Coil 3.6.3, OkHttp 5.5.1, desugar_jdk_libs_nio 2.1.5.
 
@@ -125,6 +126,8 @@ How: `OfflineAudio` owns a `SimpleCache` (`files/offline-audio`, no eviction) an
 
 **Sharing playlists (v0.5.1).** "⋮ → Compartir" sends a text with a link `https://david-navarro.github.io/esputifai/l/#<data>` where `<data>` is the whole list (base64url of zlib-deflated JSON, no thumbnails; ~35 chars per song). Nothing is stored anywhere: the part after `#` never reaches the server. GitHub Pages (branch `main`, folder `docs/`) serves a static page that decodes the list in the browser, shows it, and opens the app with `esputifai://import?d=<data>`; the app asks "¿Importar?" and creates a streaming list (name suffixed " (2)" if taken). An intermediate page is needed because WhatsApp only links `https://`, and the `https` link can't be an auto-verified App Link (Pages can't serve `/.well-known/assetlinks.json` at the domain root for a project site); the manifest still declares it, so the user can enable it in Settings → Apps → Esputifai → Open by default and skip the page. Forks must change `PlaylistShare.PAGE` and the manifest host.
 
+**"Reproduciendo" panel (v0.6.0).** Tapping the player opens a sheet (not a full-screen player, owner's choice) with a seek bar (applied when the finger lifts), big previous/play/next buttons and the queue: tap to jump (the current song is not restarted), "⋮" to move up/down or take out of the queue. The queue is read from the `MediaController` only when the timeline or current item changes.
+
 **Navigation.** Four tabs; each keeps its own stack of pushed screens (playlist, album, artist). Back pops; tapping the current tab returns to its root.
 
 **Sizes.** Standard Material 3 sizes (as in v0.1.0). v0.2.0–v0.3.1 had an app-wide zoom (`UI_SCALE`/`TEXT_SCALE` in `Theme.kt`) and oversized components for readability; the owner found it too big and it was reverted in v0.3.2. Whoever needs bigger text raises the phone's font size, which the app follows. Reordering inside a list uses "Subir/Bajar" menu items; removing a song can be undone from the snackbar; deleting a list asks for confirmation.
@@ -156,19 +159,14 @@ scripts/build-apk.sh --write-verification-metadata sha256 assembleRelease testDe
 
 ## Roadmap
 
-Proposed order, agreed in principle with the owner (exact scope of each step to confirm when starting it):
+Open, in no fixed order:
 
-1. **Full-screen player:** large artwork, seek bar, queue view (reorder/remove). Today there is only the mini player.
-2. **Autoplay radio:** when the queue ends, continue with related tracks (NewPipe `StreamInfo.relatedItems`, or YouTube Music's "up next" / radio playlist `RDAMVM<videoId>`).
-3. **Albums and artists:** search tabs for albums and artists; album and artist pages (NewPipe `music_albums` / `music_artists` filters, playlist and channel extractors).
-4. ~~Local playlists~~ done in v0.2.0. Still open: listening history, and backup/export of `playlists.json` (e.g. share as a file), since uninstalling loses it.
-5. ~~Offline downloads~~ done in v0.3.0 (per playlist).
-6. **Google account sign-in:** the user's YouTube Music library, playlists and likes. The most fragile piece: cookie or OAuth handling, and it needs maintenance when Google changes things.
+- **Sync between one person's devices** (phone + tablet): playlists, Albumteca and plays through a file in the user's own Google Drive, no Google Cloud project. A probe (`src/debug`) is checking whether Drive's file provider is fresh enough; if not, the Drive API is the fallback. Needs per-item merge (timestamps, deletion markers, per-device play counters).
+- **Autoplay radio:** when the queue ends, continue with related tracks (`RDAMVM<videoId>`, as "Relacionadas").
+- **Backup/export** of the Albumteca and plays (playlists can already be shared as links); uninstalling loses them.
+- **iPhone:** being considered; would be a separate native project (NewPipeExtractor is Java).
 
-Smaller items to fold in along the way:
-
-- Error handling UX: auto-skip unplayable tracks, retry button, offline message.
-- `R8` with NewPipe's keep rules to shrink the APK.
+Dropped: a full-screen player (the "Reproduciendo" panel covers seek and queue); Google account sign-in.
 
 ## Contributing
 
@@ -209,6 +207,7 @@ This is an independent personal project, not affiliated with YouTube, Google or 
 
 - **2026-11-07:** Started as a FastAPI backend (ytmusicapi search + yt-dlp ranged audio proxy, Subsonic API layer for Symfonium/Tempo). The owner found the server + third-party client setup confusing and wanted a self-contained app, so the backend was stopped and deleted the same day. Lessons kept: YouTube stream URLs from yt-dlp's TV client return 403 until their `available_at` time, and googlevideo URLs are IP-locked, so on-device resolution avoids both issues.
 - **2026-11-07:** Android app v0.1.0 (this repo).
+- **2026-11-09:** v0.6.0: R8 (APK 17.6 → 3.6 MB), "Reproduciendo" panel with seek bar and queue. CLAUDE.md and soul.md taken out of the public repo.
 - **2026-11-09:** v0.5.1: plays counted on song end, playing song not restarted on tap, "Ir al álbum" on long press, playlist sharing via GitHub Pages link.
 - **2026-11-09:** v0.5.0: search autocomplete, play counter on songs, "Top" tab (songs, artists, albums); play history stores song details (`plays.json` v2).
 - **2026-11-09:** Supply chain hardening: Gradle dependency verification (SHA-256 for all artifacts), NewPipeExtractor pinned by commit, JitPack restricted to NewPipe, Gradle and build image pinned by checksum/digest, no SDK auto-download, Bouncy Castle 1.85 in the build classpath (critical CVE-2026-8763).

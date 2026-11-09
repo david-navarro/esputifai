@@ -25,8 +25,8 @@ android {
         applicationId = "dev.personal.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.5.1"
+        versionCode = 10
+        versionName = "0.6.0"
     }
 
     signingConfigs {
@@ -43,7 +43,9 @@ android {
     buildTypes {
         release {
             // No R8 for now: NewPipeExtractor needs keep rules; revisit if APK size matters.
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
         debug {

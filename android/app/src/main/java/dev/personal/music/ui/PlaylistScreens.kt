@@ -482,12 +482,13 @@ fun StorageDialog(
 
 /** The "⋮" on each song inside a playlist: move up, move down, remove. */
 @Composable
-private fun TrackMenu(
+internal fun TrackMenu(
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
+    removeLabel: String = "Quitar de la lista",
 ) {
     var open by remember { mutableStateOf(false) }
     IconButton(onClick = { open = true }) {
@@ -495,7 +496,7 @@ private fun TrackMenu(
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             if (canMoveUp) MenuItem("Subir", Icons.Rounded.ArrowUpward) { open = false; onMoveUp() }
             if (canMoveDown) MenuItem("Bajar", Icons.Rounded.ArrowDownward) { open = false; onMoveDown() }
-            MenuItem("Quitar de la lista", Icons.Rounded.RemoveCircleOutline, MaterialTheme.colorScheme.error) {
+            MenuItem(removeLabel, Icons.Rounded.RemoveCircleOutline, MaterialTheme.colorScheme.error) {
                 open = false
                 onRemove()
             }

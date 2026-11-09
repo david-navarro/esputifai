@@ -108,6 +108,9 @@ data class NowPlaying(
     fun toTrack() = Track(videoId, title, artist, durationMs / 1000, artworkUri?.toString())
 }
 
+/** The player's queue as shown in the "Reproduciendo" panel. */
+data class QueueState(val tracks: List<Track> = emptyList(), val current: Int = -1)
+
 /** A short notice for the snackbar, optionally with an "undo" action. */
 data class UiMessage(val text: String, val undo: (() -> Unit)? = null)
 
@@ -220,8 +223,15 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         app, SessionToken(app, ComponentName(app, PlaybackService::class.java)),
     ).buildAsync()
 
+    private val _queue = MutableStateFlow(QueueState())
+    val queue: StateFlow<QueueState> = _queue.asStateFlow()
+
     private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = refresh()
+        override fun onEvents(player: Player, events: Player.Events) {
+            refresh()
+            // The queue is rebuilt only when it changes, not on every progress tick.
+            if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION)) refreshQueue()
+        }
     }
 
     init {
@@ -232,6 +242,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         controllerFuture.addListener({
             controller = controllerFuture.get().also { it.addListener(listener) }
             refresh()
+            refreshQueue()
         }, ContextCompat.getMainExecutor(app))
 
         // Progress bar ticker; listener events don't fire for position changes.
@@ -444,6 +455,37 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val c = controller ?: return
         if (c.playerError != null) c.prepare() // retry after an error
         if (c.isPlaying) c.pause() else c.play()
+    }
+
+    /** Jumps to song [index] of the queue ("Reproduciendo" panel). */
+    fun playQueueItem(index: Int) {
+        val c = controller ?: return
+        if (index == c.currentMediaItemIndex) return // same rule as play(): don't restart it
+        c.seekTo(index, 0L)
+        c.prepare()
+        c.play()
+    }
+
+    fun removeFromQueue(index: Int) = controller?.removeMediaItem(index)
+
+    fun moveInQueue(from: Int, to: Int) = controller?.moveMediaItem(from, to)
+
+    private fun refreshQueue() {
+        val c = controller ?: return
+        _queue.value = QueueState(
+            tracks = (0 until c.mediaItemCount).map { i ->
+                val item = c.getMediaItemAt(i)
+                val md = item.mediaMetadata
+                Track(
+                    videoId = item.mediaId,
+                    title = md.title?.toString().orEmpty(),
+                    artist = md.artist?.toString().orEmpty(),
+                    durationSec = (md.durationMs ?: 0L) / 1000,
+                    thumbnailUrl = md.artworkUri?.toString(),
+                )
+            },
+            current = c.currentMediaItemIndex,
+        )
     }
 
     fun next() = controller?.seekToNext()
