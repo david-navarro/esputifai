@@ -139,6 +139,41 @@ Smaller items to fold in along the way:
 - Error handling UX: auto-skip unplayable tracks, retry button, offline message.
 - `R8` with NewPipe's keep rules to shrink the APK.
 
+## Contributing
+
+Improvements are welcome: bug fixes, YouTube breakages, UI polish, new features from the roadmap.
+
+1. **Open an issue first** for anything bigger than a small fix, so we can agree on the approach before you spend time on it.
+2. **Fork** the repo and create a branch from `main` (`fix/related-duplicates`, `feature/sleep-timer`…).
+3. **Build and test in Docker**, no local Android SDK needed:
+   ```bash
+   scripts/build-apk.sh testDebugUnitTest   # unit tests + smoke tests against real YouTube (needs network)
+   scripts/build-apk.sh                     # release APK (creates your own signing key on first run)
+   ```
+4. **Open a pull request** describing what changes and why, and how you checked it: which tests pass and what you tried on a real phone.
+
+There is no CI: pull requests are not built or tested automatically, so run the tests locally before opening one. The smoke tests talk to the real YouTube, which is also why they don't fit an automated pipeline: they break when YouTube changes, not when the code does.
+
+Guidelines:
+
+- Keep the app **serverless**: everything runs on the phone.
+- Code, comments and docs in **English**; the app's UI is in **Spanish**.
+- Prefer tests with **real data** (like the existing smoke tests) over mocks.
+- Explain non-obvious decisions in a short comment, and update this README when behavior or design changes.
+- Small, focused PRs are easier to review than big ones.
+
+This is a personal project maintained in spare time, so reviews may take a while and not every proposal will be merged. Thanks for helping!
+
+## License
+
+Copyright (C) 2026 david-navarro
+
+Esputifai is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License v3.0](LICENSE) (GPL-3.0). It comes with no warranty.
+
+GPL-3.0 because the app is built on [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor), which is GPL-3.0 too: anyone who distributes the APK must offer the source under the same license. By opening a pull request you agree that your contribution is licensed under GPL-3.0.
+
+This is an independent personal project, not affiliated with YouTube, Google or Spotify.
+
 ## History
 
 - **2026-11-07:** Started as a FastAPI backend (ytmusicapi search + yt-dlp ranged audio proxy, Subsonic API layer for Symfonium/Tempo). The owner found the server + third-party client setup confusing and wanted a self-contained app, so the backend was stopped and deleted the same day. Lessons kept: YouTube stream URLs from yt-dlp's TV client return 403 until their `available_at` time, and googlevideo URLs are IP-locked, so on-device resolution avoids both issues.
