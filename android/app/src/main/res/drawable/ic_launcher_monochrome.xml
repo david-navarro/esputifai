@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Esputifai themed icon (Android 13+): flame silhouette only, from (design/esputifai-logo.svg, 512 viewBox), scaled so the logo's circle matches
+     the visible adaptive-icon circle (72dp of 108dp): the flame stays inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:scaleX="0.14754" android:scaleY="0.14754" android:translateX="16.230" android:translateY="16.230">
+        <path android:fillColor="#FFFFFF" android:pathData="M262,84 C300,160 380,196 380,300 C380,372 324,424 256,424 C188,424 132,372 132,300 C132,238 172,206 190,160 C206,206 226,224 240,232 C232,178 238,132 262,84 Z" />
+    </group>
+</vector>

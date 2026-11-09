@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Esputifai</string>
+    <string name="download_channel_name">Canciones guardadas</string>
+    <string name="download_channel_description">Progreso al guardar listas en el móvil</string>
+</resources>

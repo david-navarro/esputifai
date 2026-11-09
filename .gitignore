@@ -1,0 +1,18 @@
+# Secrets: never commit
+.env
+android/keystore/
+
+# Build output and caches
+build/
+android/.gradle/
+android/local.properties
+*.apk
+dist/
+
+# Local tool settings
+.claude/
+.idea/
+*.iml
+
+# Local machine helper, not part of the app
+scripts/ts-op
