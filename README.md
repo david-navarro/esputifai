@@ -2,8 +2,6 @@
 
 A personal, serverless Android music player backed by YouTube Music. The phone talks to YouTube directly: search and audio resolution run on-device through [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor), playback through Media3/ExoPlayer. Personal use only; not distributed.
 
-Working agreement and language rules: [`CLAUDE.md`](CLAUDE.md) and [`soul.md`](soul.md).
-
 ## Status (2026-11-09)
 
 - **v0.1.0** (search → play → background playback with notification/lock-screen controls) confirmed working on the phone by the owner.
@@ -17,8 +15,6 @@ Working agreement and language rules: [`CLAUDE.md`](CLAUDE.md) and [`soul.md`](s
 ## Layout
 
 ```
-CLAUDE.md                     project instructions for Claude (language rules first)
-soul.md                       working agreement with the owner
 docker/android-build.Dockerfile   build image: JDK 21 + Android SDK (platform 37.2, build-tools 37.0.0)
 scripts/build-apk.sh          builds inside Docker; creates the signing key on first run
 dist/                         last APK copied for installing (not in git)

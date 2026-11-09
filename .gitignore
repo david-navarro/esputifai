@@ -11,6 +11,8 @@ dist/
 
 # Local tool settings
 .claude/
+CLAUDE.md
+soul.md
 .idea/
 *.iml
 
