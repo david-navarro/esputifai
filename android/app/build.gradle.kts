@@ -25,8 +25,8 @@ android {
         applicationId = "dev.personal.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.4.0"
+        versionCode = 9
+        versionName = "0.5.1"
     }
 
     signingConfigs {
@@ -44,6 +44,12 @@ android {
         release {
             // No R8 for now: NewPipeExtractor needs keep rules; revisit if APK size matters.
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            // Installs next to the real app; also carries throwaway probes (src/debug).
+            applicationIdSuffix = ".probe"
+            // The container has no persistent ~/.android/debug.keystore; reuse our key.
             signingConfig = signingConfigs.getByName("release")
         }
     }

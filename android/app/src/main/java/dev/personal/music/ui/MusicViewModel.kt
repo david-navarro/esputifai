@@ -19,7 +19,12 @@ import dev.personal.music.data.AlbumOrder
 import dev.personal.music.data.Artist
 import dev.personal.music.data.LibraryAlbum
 import dev.personal.music.data.Playlist
+import dev.personal.music.data.PlaylistShare
+import dev.personal.music.data.SharedPlaylist
+import dev.personal.music.data.Ranked
 import dev.personal.music.data.RelatedSongs
+import dev.personal.music.data.Top
+import dev.personal.music.data.TopArtist
 import dev.personal.music.data.Track
 import dev.personal.music.data.YouTubeMusic
 import dev.personal.music.offline.SavedAudio
@@ -35,6 +40,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -64,6 +74,19 @@ data class RelatedState(
     val hasMore: Boolean = true,
     val error: Boolean = false,
 )
+
+/** The "Top" tab: the user's most played songs, artists and albums. */
+data class TopLists(
+    val songs: List<Ranked<Track>> = emptyList(),
+    val artists: List<Ranked<TopArtist>> = emptyList(),
+    val albums: List<Ranked<Album>> = emptyList(),
+)
+
+enum class TopKind(val label: String) {
+    Songs("Canciones"),
+    Artists("Artistas"),
+    Albums("Álbumes"),
+}
 
 /** What the artist page shows. */
 data class ArtistPage(val songs: List<Track>, val albums: List<Album>)
@@ -131,7 +154,49 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The Albumteca, unsorted (the screen sorts it with [albumOrder]). */
     val albums: StateFlow<List<LibraryAlbum>> = albumStore.albums
-    val plays: StateFlow<Map<String, Int>> = playCounts.plays
+
+    /** Times each song has been played, by videoId. */
+    val plays: StateFlow<Map<String, Int>> = playCounts.history.map { it.counts }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** Recomputed off the main thread whenever something is played or the library changes. */
+    val top: StateFlow<TopLists> = combine(playCounts.history, store.playlists, albumStore.albums) { h, lists, albums ->
+        val known = lists.flatMap { it.tracks } + albums.flatMap { it.tracks }
+        TopLists(
+            songs = Top.songs(h, known),
+            artists = Top.artists(Top.songs(h, known, limit = Int.MAX_VALUE)),
+            albums = Top.albums(h, albums),
+        )
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TopLists())
+
+    private val _topKind = MutableStateFlow(
+        runCatching { TopKind.valueOf(prefs.getString(KEY_TOP_KIND, null)!!) }.getOrDefault(TopKind.Songs),
+    )
+    val topKind: StateFlow<TopKind> = _topKind.asStateFlow()
+
+    fun setTopKind(kind: TopKind) {
+        _topKind.value = kind
+        prefs.edit().putString(KEY_TOP_KIND, kind.name).apply()
+    }
+
+    private val typed = MutableStateFlow("")
+
+    /** Autocomplete for what is being typed; empty when there is nothing to suggest. */
+    @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val suggestions: StateFlow<List<String>> = typed
+        .map { it.trim() }
+        .distinctUntilChanged()
+        .debounce(250) // one request per pause in typing, not per key
+        .mapLatest { q ->
+            if (q.length < 2) emptyList()
+            else runCatching { withContext(Dispatchers.IO) { YouTubeMusic.suggestions(q) } }.getOrDefault(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** The search box changed: fetch suggestions for it. */
+    fun onQueryTyped(query: String) {
+        typed.value = query
+    }
 
     private val _albumOrder = MutableStateFlow(
         runCatching { AlbumOrder.valueOf(prefs.getString(KEY_ALBUM_ORDER, null)!!) }.getOrDefault(AlbumOrder.MostPlayed),
@@ -183,6 +248,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun search(query: String) {
         val q = query.trim()
         if (q.isEmpty()) return
+        typed.value = "" // hide the suggestions
         lastQuery = q
         val kind = _searchKind.value
         searchJob?.cancel()
@@ -258,6 +324,38 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         }.also { artistCache[artist.channelId] = it }
     }
 
+    /**
+     * Finds the artist a Top row refers to: the Top only knows the name, the artist page needs the
+     * channel. Prefers an exact name match over YouTube's first result.
+     */
+    suspend fun findArtist(name: String): Artist? = withContext(Dispatchers.IO) {
+        val found = YouTubeMusic.searchArtists(name)
+        found.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: found.firstOrNull()
+    }
+
+    private val albumOfCache = mutableMapOf<String, Album?>()
+
+    /**
+     * The album of [track] for "Ir al álbum": the Albumteca and albums already played know it at
+     * once; otherwise YouTube is searched (about a second). Null if not found.
+     */
+    suspend fun albumOf(track: Track): Album? {
+        albums.value.find { a -> a.tracks.any { it.videoId == track.videoId } }?.let { return it.album }
+        playCounts.history.value.albums.values.find { track.videoId in it.trackIds }?.let { return it.album }
+        if (track.videoId in albumOfCache) return albumOfCache[track.videoId]
+        return withContext(Dispatchers.IO) { YouTubeMusic.findAlbum(track) }
+            .also { albumOfCache[track.videoId] = it }
+    }
+
+    /** Plays from an album page; the album is remembered so it can appear in the Top. */
+    fun playAlbum(album: Album, tracks: List<Track>, index: Int) {
+        play(tracks, index)
+        viewModelScope.launch {
+            val all = runCatching { albumTracks(album) }.getOrDefault(tracks)
+            playCounts.rememberAlbum(album, all)
+        }
+    }
+
     fun addToAlbumteca(album: Album) = viewModelScope.launch {
         if (albums.value.any { it.id == album.id }) {
             say("«${album.title}» ya está en la Albumteca")
@@ -314,9 +412,24 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
-    /** Play [tracks] as the queue, starting at [index]. */
+    /**
+     * Play [tracks] as the queue, starting at [index]. If that song is the one already playing it
+     * is not restarted (owner's rule): it keeps going and only the queue around it changes.
+     */
     fun play(tracks: List<Track>, index: Int) {
         val c = controller ?: return
+        val target = tracks.getOrNull(index) ?: return
+        if (c.currentMediaItem?.mediaId == target.videoId && c.playerError == null) {
+            val at = c.currentMediaItemIndex
+            // Remove + add rather than replace: added items go through the session's
+            // onAddMediaItems, which restores their URIs.
+            c.removeMediaItems(at + 1, c.mediaItemCount)
+            c.addMediaItems(tracks.drop(index + 1).map { it.toMediaItem() })
+            c.removeMediaItems(0, at)
+            c.addMediaItems(0, tracks.take(index).map { it.toMediaItem() })
+            if (!c.isPlaying) c.play()
+            return
+        }
         c.setMediaItems(tracks.map { it.toMediaItem() }, index, 0L)
         c.prepare()
         c.play()
@@ -336,6 +449,43 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun next() = controller?.seekToNext()
     fun previous() = controller?.seekToPrevious()
     fun seekTo(positionMs: Long) = controller?.seekTo(positionMs)
+
+    // --- Sharing playlists ---
+
+    private val _incoming = MutableStateFlow<SharedPlaylist?>(null)
+
+    /** A list someone shared, waiting for "¿Importar?"; null when there is none. */
+    val incoming: StateFlow<SharedPlaylist?> = _incoming.asStateFlow()
+
+    /** The app was opened from a shared-list link. */
+    fun receiveShared(link: String) {
+        val shared = PlaylistShare.parse(link)
+        if (shared == null || shared.tracks.isEmpty()) say("Ese enlace no contiene una lista válida")
+        else _incoming.value = shared
+    }
+
+    fun dismissIncoming() {
+        _incoming.value = null
+    }
+
+    /** Imports the pending shared list as a new streaming list. */
+    fun importIncoming() = viewModelScope.launch {
+        val shared = _incoming.value ?: return@launch
+        _incoming.value = null
+        val taken = store.playlists.value.map { it.name }.toSet()
+        val name = generateSequence(1) { it + 1 }
+            .map { if (it == 1) shared.name else "${shared.name} ($it)" }
+            .first { it !in taken }
+        store.create(name, offline = false, tracks = shared.tracks)
+        say("Lista «$name» importada")
+    }
+
+    /** The text to send for [playlist]: a sentence and its link. */
+    fun shareText(playlist: Playlist): String {
+        val songs = if (playlist.tracks.size == 1) "1 canción" else "${playlist.tracks.size} canciones"
+        return "Te paso mi lista «${playlist.name}» de Esputifai ($songs): " +
+            PlaylistShare.link(playlist.name, playlist.tracks)
+    }
 
     // --- Playlists ---
 
@@ -437,6 +587,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         const val KEY_ACTIVE_LIST = "activeList"
         const val KEY_SEARCH_KIND = "searchKind"
         const val KEY_ALBUM_ORDER = "albumOrder"
+        const val KEY_TOP_KIND = "topKind"
     }
 
     override fun onCleared() {

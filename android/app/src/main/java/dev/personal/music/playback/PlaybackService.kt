@@ -16,6 +16,7 @@ import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dev.personal.music.MusicApp
+import dev.personal.music.data.Track
 import kotlinx.coroutines.launch
 import dev.personal.music.ui.MainActivity
 
@@ -45,7 +46,7 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         player.addListener(SkipUnplayable(player))
-        player.addListener(CountPlays(application as MusicApp))
+        player.addListener(CountPlays(player, application as MusicApp))
 
         val openApp = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
@@ -99,13 +100,38 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Counts a play each time a song starts (for the Albumteca's "Más escuchados"), here rather
-     * than in the UI so plays with the app closed count too.
+     * Counts a play when a song plays to its end (song counters, the Top and the Albumteca's "Más
+     * escuchados"): that is what "listened to" means (owner's rule, 2026-11-09), so starting a song
+     * 100 times and skipping it counts nothing. A song ends when the player moves on by itself
+     * (AUTO, or REPEAT of the same song) or the queue finishes (STATE_ENDED); skips and taps are
+     * SEEK / PLAYLIST_CHANGED and don't count. Counted here rather than in the UI so plays with
+     * the app closed count too. The song's details are kept with the count so the Top can show it.
      */
-    private class CountPlays(private val app: MusicApp) : Player.Listener {
+    private class CountPlays(private val player: Player, private val app: MusicApp) : Player.Listener {
+        private var current: MediaItem? = null
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            val id = mediaItem?.mediaId?.takeIf { it.isNotEmpty() } ?: return
-            app.appScope.launch { app.plays.countPlay(id) }
+            val finished = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            if (finished) current?.let(::count)
+            current = mediaItem
+        }
+
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state == Player.STATE_ENDED) player.currentMediaItem?.let(::count)
+        }
+
+        private fun count(item: MediaItem) {
+            val id = item.mediaId.takeIf { it.isNotEmpty() } ?: return
+            val md = item.mediaMetadata
+            val track = Track(
+                videoId = id,
+                title = md.title?.toString().orEmpty(),
+                artist = md.artist?.toString().orEmpty(),
+                durationSec = (md.durationMs ?: 0L) / 1000,
+                thumbnailUrl = md.artworkUri?.toString(),
+            )
+            app.appScope.launch { app.plays.countPlay(track) }
         }
     }
 

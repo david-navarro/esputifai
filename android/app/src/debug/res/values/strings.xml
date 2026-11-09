@@ -1,0 +1,4 @@
+<resources>
+    <!-- The debug build installs next to the real app (different applicationId). -->
+    <string name="app_name">Esputifai prueba</string>
+</resources>

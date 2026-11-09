@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  Landing page of shared Esputifai playlists (see PlaylistShare.kt).
+  The list is in the URL after "#", which browsers never send to the server: this static page
+  decodes it locally (base64url + zlib + JSON), shows it, and hands it to the app through
+  esputifai://import?d=<data>. No data is stored or sent anywhere.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Lista de Esputifai</title>
+<style>
+  :root { --bg: #fff; --fg: #1b1b1f; --muted: #5d5e66; --accent: #e8590c; --line: #e3e3e8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131316; --fg: #e5e5ea; --muted: #a3a4ad; --accent: #ff8a3d; --line: #2c2c31; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 18px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; overflow-wrap: anywhere; }
+  .muted { color: var(--muted); }
+  .open { display: block; width: 100%; margin: 20px 0 8px; padding: 16px; border-radius: 28px;
+          background: var(--accent); color: #fff; text-align: center; font-weight: 600;
+          font-size: 1.15rem; text-decoration: none; }
+  ol { padding-left: 1.6em; margin: 20px 0 0; }
+  li { padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  li span { display: block; font-size: .9rem; color: var(--muted); }
+  .error { color: #c92a2a; }
+</style>
+</head>
+<body>
+<main>
+  <p class="muted">Esputifai · lista compartida</p>
+  <h1 id="name">Cargando…</h1>
+  <p id="count" class="muted"></p>
+  <a id="open" class="open" href="#" hidden>Abrir en Esputifai</a>
+  <p id="hint" class="muted" hidden>Si al pulsar no pasa nada, primero hay que tener instalada
+    <a href="https://github.com/david-navarro/esputifai">Esputifai</a>.</p>
+  <ol id="songs"></ol>
+</main>
+<script>
+(async () => {
+  const data = location.hash.slice(1);
+  const $ = id => document.getElementById(id);
+  try {
+    if (!data) throw new Error("empty");
+    const b64 = data.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(atob(b64 + "===".slice((b64.length + 3) % 4)), c => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+    const list = JSON.parse(await new Response(stream).text());
+    document.title = list.n + " · Esputifai";
+    $("name").textContent = list.n;
+    $("count").textContent = list.t.length === 1 ? "1 canción" : list.t.length + " canciones";
+    for (const [, title, artist] of list.t) {
+      const li = document.createElement("li");
+      li.textContent = title;
+      const a = document.createElement("span");
+      a.textContent = artist;
+      li.appendChild(a);
+      $("songs").appendChild(li);
+    }
+    $("open").href = "esputifai://import?d=" + data;
+    $("open").hidden = false;
+    $("hint").hidden = false;
+  } catch (e) {
+    $("name").textContent = "Enlace no válido";
+    $("count").textContent = "Este enlace no contiene una lista de Esputifai, o se ha cortado al copiarlo.";
+    $("count").className = "error";
+  }
+})();
+</script>
+</body>
+</html>

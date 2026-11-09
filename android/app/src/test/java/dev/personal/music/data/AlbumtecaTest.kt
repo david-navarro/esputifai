@@ -41,8 +41,8 @@ class AlbumtecaTest {
 
         val playsFile = dir.root.resolve("plays.json")
         val p = PlayCountStore(playsFile, Dispatchers.Unconfined)
-        p.countPlay("a"); p.countPlay("a"); p.countPlay("b")
-        val counts = PlayCountStore(playsFile, Dispatchers.Unconfined).also { it.load() }.plays.value
+        p.countPlay(t("a")); p.countPlay(t("a")); p.countPlay(t("b"))
+        val counts = PlayCountStore(playsFile, Dispatchers.Unconfined).also { it.load() }.history.value.counts
         assertEquals(mapOf("a" to 2, "b" to 1), counts)
         assertEquals(3, playsOf(reopened.single(), counts))
     }

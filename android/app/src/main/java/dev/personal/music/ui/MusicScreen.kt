@@ -1,6 +1,10 @@
 package dev.personal.music.ui
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +17,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.EmojiEvents
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
@@ -57,6 +65,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Search("Buscar", Icons.Rounded.Search),
     Playlists("Mis listas", Icons.AutoMirrored.Rounded.QueueMusic),
     Albums("Albumteca", Icons.Rounded.Album),
+    Top("Top", Icons.Rounded.EmojiEvents),
 }
 
 /** A screen pushed on top of a tab's main screen. */
@@ -67,7 +76,7 @@ private sealed interface Route {
 }
 
 /**
- * App shell: three tabs at the bottom (Buscar / Mis listas / Albumteca), the player above them,
+ * App shell: four tabs at the bottom (Buscar / Mis listas / Albumteca / Top), the player above them,
  * snackbars with "Deshacer", and the "add to playlist" panel. Navigation is plain state, no
  * library: each tab keeps its own stack of pushed screens (Buscar → Artista → Álbum…); "back"
  * pops it, and tapping the current tab again returns to its main screen.
@@ -81,6 +90,12 @@ fun MusicScreen(vm: MusicViewModel) {
     val activeList by vm.activeList.collectAsStateWithLifecycle()
     val albums by vm.albums.collectAsStateWithLifecycle()
     val plays by vm.plays.collectAsStateWithLifecycle()
+    val top by vm.top.collectAsStateWithLifecycle()
+    val topKind by vm.topKind.collectAsStateWithLifecycle()
+    val suggestions by vm.suggestions.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val incoming by vm.incoming.collectAsStateWithLifecycle()
     val albumOrder by vm.albumOrder.collectAsStateWithLifecycle()
     val savedAudio by vm.savedAudio.collectAsStateWithLifecycle()
     val online by vm.online.collectAsStateWithLifecycle()
@@ -94,6 +109,12 @@ fun MusicScreen(vm: MusicViewModel) {
 
     var query by rememberSaveable { mutableStateOf("") }
     var addingTrack by remember { mutableStateOf<Track?>(null) }
+    var songMenu by remember { mutableStateOf<Track?>(null) }
+    var albumLookup by remember { mutableStateOf(AlbumLookup.Idle) }
+    val openSongMenu: (Track) -> Unit = {
+        albumLookup = AlbumLookup.Idle
+        songMenu = it
+    }
     val snackbar = remember { SnackbarHostState() }
     val activeIds = remember(activeList) { activeList?.tracks?.map { it.videoId }?.toSet().orEmpty() }
     val albumtecaIds = remember(albums) { albums.map { it.id }.toSet() }
@@ -128,6 +149,7 @@ fun MusicScreen(vm: MusicViewModel) {
 
     BackHandler(enabled = route != null) { pop() }
 
+    CompositionLocalProvider(LocalPlays provides plays, LocalSongMenu provides openSongMenu) {
     Scaffold(
         snackbarHost = {
             SnackbarHost(snackbar) { data ->
@@ -155,6 +177,7 @@ fun MusicScreen(vm: MusicViewModel) {
                         inActiveList = np.videoId in activeIds,
                         onAdd = { songs.onAdd(np.toTrack()) },
                         onChooseLists = { addingTrack = np.toTrack() },
+                        onLongPress = { openSongMenu(np.toTrack()) },
                     )
                 }
                 NavigationBar {
@@ -177,11 +200,19 @@ fun MusicScreen(vm: MusicViewModel) {
             when (route) {
                 is Route.AlbumPage -> {
                     val inLib = albums.find { it.id == route.album.id }
+                    val album = inLib?.album ?: route.album
                     AlbumScreen(
-                        album = inLib?.album ?: route.album,
+                        album = album,
                         inAlbumteca = inLib,
                         loadTracks = vm::albumTracks,
-                        songs = songs,
+                        // Playing from here also remembers the album for the Top.
+                        songs = SongActions(
+                            playingId = songs.playingId,
+                            activeIds = songs.activeIds,
+                            onPlay = { tracks, i -> vm.playAlbum(album, tracks, i) },
+                            onAdd = songs.onAdd,
+                            onChooseLists = songs.onChooseLists,
+                        ),
                         activeListBar = activeListBar,
                         savedAudio = savedAudio,
                         online = online,
@@ -216,6 +247,12 @@ fun MusicScreen(vm: MusicViewModel) {
                             onPlay = vm::play,
                             onShuffle = vm::playShuffled,
                             onRename = { vm.renamePlaylist(open.id, it) },
+                            onShare = {
+                                val send = Intent(Intent.ACTION_SEND)
+                                    .setType("text/plain")
+                                    .putExtra(Intent.EXTRA_TEXT, vm.shareText(open))
+                                context.startActivity(Intent.createChooser(send, "Compartir «${open.name}»"))
+                            },
                             onDelete = {
                                 pop()
                                 vm.deletePlaylist(open)
@@ -231,7 +268,15 @@ fun MusicScreen(vm: MusicViewModel) {
                 null -> when (tab) {
                     Tab.Search -> SearchScreen(
                         query = query,
-                        onQueryChange = { query = it },
+                        onQueryChange = {
+                            query = it
+                            vm.onQueryTyped(it)
+                        },
+                        suggestions = suggestions,
+                        onSuggestion = {
+                            query = it
+                            vm.search(it)
+                        },
                         kind = searchKind,
                         onKindChange = vm::setSearchKind,
                         state = search,
@@ -265,9 +310,69 @@ fun MusicScreen(vm: MusicViewModel) {
                             tab = Tab.Search
                         },
                     )
+                    Tab.Top -> TopScreen(
+                        top = top,
+                        kind = topKind,
+                        onKindChange = vm::setTopKind,
+                        songs = songs,
+                        activeListBar = activeListBar,
+                        onOpenArtist = { a ->
+                            scope.launch {
+                                val artist = runCatching { vm.findArtist(a.name) }.getOrNull()
+                                if (artist != null) push(Route.ArtistPage(artist))
+                                else snackbar.showSnackbar("No se ha encontrado a ${a.name}. ¿Hay internet?")
+                            }
+                        },
+                        onOpenAlbum = { push(Route.AlbumPage(it)) },
+                    )
                 }
             }
         }
+    }
+
+    }
+
+    incoming?.let { shared ->
+        AlertDialog(
+            onDismissRequest = vm::dismissIncoming,
+            title = { Text("¿Importar «${shared.name}»?") },
+            text = {
+                val n = shared.tracks.size
+                Text(
+                    "Te han compartido una lista con ${if (n == 1) "1 canción" else "$n canciones"}. " +
+                        "Se añadirá a «Mis listas», en streaming.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.importIncoming()
+                    stacks[Tab.Playlists] = emptyList()
+                    tab = Tab.Playlists
+                }) { Text("Importar") }
+            },
+            dismissButton = { TextButton(onClick = vm::dismissIncoming) { Text("Cancelar") } },
+        )
+    }
+
+    songMenu?.let { track ->
+        SongMenuDialog(
+            track = track,
+            lookup = albumLookup,
+            onGoToAlbum = {
+                albumLookup = AlbumLookup.Searching
+                scope.launch {
+                    val album = runCatching { vm.albumOf(track) }.getOrNull()
+                    if (songMenu != track) return@launch // closed meanwhile
+                    if (album == null) {
+                        albumLookup = AlbumLookup.NotFound
+                    } else {
+                        songMenu = null
+                        push(Route.AlbumPage(album))
+                    }
+                }
+            },
+            onDismiss = { songMenu = null },
+        )
     }
 
     addingTrack?.let { track ->
@@ -303,6 +408,7 @@ private fun PlayerBar(
     inActiveList: Boolean,
     onAdd: () -> Unit,
     onChooseLists: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -314,7 +420,7 @@ private fun PlayerBar(
             ) {
                 Artwork(np.artworkUri?.toString(), 44)
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f).combinedClickable(onClick = {}, onLongClick = onLongPress)) {
                     Text(np.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                     Text(
                         np.error?.let { if (online) "No se puede reproducir: $it" else "Sin internet y no está guardada en el móvil" }

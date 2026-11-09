@@ -9,6 +9,8 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAddCheck
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.LibraryAdd
@@ -88,6 +90,15 @@ import dev.personal.music.data.Track
  */
 
 /** One song: artwork, title, "artist · duration", and an optional action at the end. */
+/**
+ * Times each song has been played, by videoId. Provided once by MusicScreen so every song row in
+ * the app can show its counter without passing the map through every screen.
+ */
+val LocalPlays = compositionLocalOf<Map<String, Int>> { emptyMap() }
+
+/** What a long press on any song row does (opens the song's menu); provided by MusicScreen. */
+val LocalSongMenu = compositionLocalOf<((Track) -> Unit)?> { null }
+
 @Composable
 fun TrackRow(
     track: Track,
@@ -97,12 +108,22 @@ fun TrackRow(
     dimmed: Boolean = false,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
+    val songMenu = LocalSongMenu.current
+    val haptics = LocalHapticFeedback.current
     Row(
         modifier
             .fillMaxWidth()
             .alpha(if (dimmed) 0.4f else 1f)
             .background(if (playing) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = songMenu?.let { open ->
+                    {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        open(track)
+                    }
+                },
+            )
             .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -123,13 +144,34 @@ fun TrackRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Column(Modifier.padding(horizontal = 8.dp), horizontalAlignment = Alignment.End) {
+            Text(
+                formatDuration(track.durationSec * 1000),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            PlayCount(LocalPlays.current[track.videoId] ?: 0)
+        }
+        trailing()
+    }
+}
+
+/** "▶ 12": how many times the user has played something; nothing if never. */
+@Composable
+fun PlayCount(plays: Int) {
+    if (plays <= 0) return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Rounded.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text(
-            formatDuration(track.durationSec * 1000),
+            "$plays",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp),
         )
-        trailing()
     }
 }
 

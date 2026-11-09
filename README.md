@@ -4,10 +4,12 @@ A personal, serverless Android music player backed by YouTube Music. The phone t
 
 Working agreement and language rules: [`CLAUDE.md`](CLAUDE.md) and [`soul.md`](soul.md).
 
-## Status (2026-11-07)
+## Status (2026-11-09)
 
 - **v0.1.0** (search → play → background playback with notification/lock-screen controls) confirmed working on the phone by the owner.
 - **v0.2.0** (local playlists, bigger UI) confirmed working on the phone by the owner. 
+- **v0.5.1 not yet confirmed on a device:** plays count only when a song ends, tapping the playing song doesn't restart it, long press on a song → "Ir al álbum", share playlists by link (see below).
+- **v0.5.0 not yet confirmed on a device:** search autocomplete, play counter on every song, "Top" tab (see below).
 - **v0.4.0 not yet confirmed on a device:** related songs, active list, album/artist search, Albumteca (see below).
 - **v0.3.3** (name "Esputifai"). v0.3.0 offline playlists confirmed working in airplane mode by the owner. **v0.3.2:** standard sizes again (zoom reverted at the owner's request). v0.3.1 added the Esputifai launcher icon. v0.3.0: playlists saved on the phone (offline) or streamed; app renamed Esputifai. Downloads and offline playback can only be verified on the device (Media3's cache needs Android); the pure rules are unit-tested.
 - The data path (search, URL resolution, ranged downloads) and the playlist store are verified against real YouTube data by JVM tests.
@@ -112,7 +114,22 @@ How: `OfflineAudio` owns a `SimpleCache` (`files/offline-audio`, no eviction) an
 
 **Albumteca.** Albums are added from album search results, the album page or an artist page; their tracks are stored at that moment (`albums.json`) so they can be saved offline and counted without YouTube. Streaming by default; "⋮ → Guardar en el móvil" downloads them under the same rules as saved playlists (`wantedOnPhone` takes lists and albums). Order: "Más escuchados" (plays of the album's songs from anywhere, counted by `PlaybackService` on each song start, so also with the app closed; owner's decision), A-Z, Z-A (Spanish collation, accents ignored).
 
-**Navigation.** Three tabs; each keeps its own stack of pushed screens (playlist, album, artist). Back pops; tapping the current tab returns to its root.
+**Play history and Top (v0.5.0).** `PlaybackService` counts a play when a song plays to its end (since v0.5.1, owner's rule: starting and skipping a song is not listening to it; AUTO/REPEAT transitions and STATE_ENDED count, SEEK/PLAYLIST_CHANGED don't) into `plays.json` (v2: `{"songs":{"<videoId>":{count,lastPlayedMs,track}},"albums":{"<id>":{album,trackIds}}}`); the song's details are stored with its count so the Top can show songs that are in no list. v1 files (counts only) are read as songs without details; the Top fills those from the playlists and Albumteca, or skips them. Every song row shows "▶ n" when played at least once (`LocalPlays`). The "Top" tab ranks (`Top.kt`, max 100 rows):
+- songs by plays, ties to the most recently played;
+- artists by the sum of their songs' plays, matched by name ignoring case and accents (songs carry no channel id; opening one searches the artist by name);
+- albums by the plays of their songs (as "Más escuchados"), among Albumteca albums and albums played from their page (remembered on play).
+
+**Autocomplete.** NewPipe's YouTube suggestion extractor (Google's suggest endpoint, ~100 ms), 250 ms debounce, terms that are never music ("reaction", "karaoke", "tutorial"…) dropped. Suggestions are plain queries, so they work for songs, albums and artists alike. While the box has focus they replace the results; the arrow fills the box without searching.
+
+**Debug build.** `assembleDebug` installs next to the real app (`dev.personal.music.probe`, "Esputifai prueba") and carries throwaway probes in `src/debug` (currently: sync through a Google Drive file opened via the system picker).
+
+**Tapping the playing song** does nothing to it (owner's rule): `play()` keeps it going and only rebuilds the queue around it (remove + add, so the session's `onAddMediaItems` restores URIs).
+
+**Song menu, "Ir al álbum" (v0.5.1).** A long press on any song row (`TrackRow`, via `LocalSongMenu`) or on the player opens a dialog with "Ir al álbum". Songs carry no album, so `albumOf` checks the Albumteca and albums already played, then `YouTubeMusic.findAlbum`: album search for "artist title", the first of 4 candidates that contains the videoId, else the first with a song of the same loose title (remasters have other ids). Checked on real data: 6/6 found, 0.7–1.7 s.
+
+**Sharing playlists (v0.5.1).** "⋮ → Compartir" sends a text with a link `https://david-navarro.github.io/esputifai/l/#<data>` where `<data>` is the whole list (base64url of zlib-deflated JSON, no thumbnails; ~35 chars per song). Nothing is stored anywhere: the part after `#` never reaches the server. GitHub Pages (branch `main`, folder `docs/`) serves a static page that decodes the list in the browser, shows it, and opens the app with `esputifai://import?d=<data>`; the app asks "¿Importar?" and creates a streaming list (name suffixed " (2)" if taken). An intermediate page is needed because WhatsApp only links `https://`, and the `https` link can't be an auto-verified App Link (Pages can't serve `/.well-known/assetlinks.json` at the domain root for a project site); the manifest still declares it, so the user can enable it in Settings → Apps → Esputifai → Open by default and skip the page. Forks must change `PlaylistShare.PAGE` and the manifest host.
+
+**Navigation.** Four tabs; each keeps its own stack of pushed screens (playlist, album, artist). Back pops; tapping the current tab returns to its root.
 
 **Sizes.** Standard Material 3 sizes (as in v0.1.0). v0.2.0–v0.3.1 had an app-wide zoom (`UI_SCALE`/`TEXT_SCALE` in `Theme.kt`) and oversized components for readability; the owner found it too big and it was reverted in v0.3.2. Whoever needs bigger text raises the phone's font size, which the app follows. Reordering inside a list uses "Subir/Bajar" menu items; removing a song can be undone from the snackbar; deleting a list asks for confirmation.
 
@@ -196,6 +213,8 @@ This is an independent personal project, not affiliated with YouTube, Google or 
 
 - **2026-11-07:** Started as a FastAPI backend (ytmusicapi search + yt-dlp ranged audio proxy, Subsonic API layer for Symfonium/Tempo). The owner found the server + third-party client setup confusing and wanted a self-contained app, so the backend was stopped and deleted the same day. Lessons kept: YouTube stream URLs from yt-dlp's TV client return 403 until their `available_at` time, and googlevideo URLs are IP-locked, so on-device resolution avoids both issues.
 - **2026-11-07:** Android app v0.1.0 (this repo).
+- **2026-11-09:** v0.5.1: plays counted on song end, playing song not restarted on tap, "Ir al álbum" on long press, playlist sharing via GitHub Pages link.
+- **2026-11-09:** v0.5.0: search autocomplete, play counter on songs, "Top" tab (songs, artists, albums); play history stores song details (`plays.json` v2).
 - **2026-11-09:** Supply chain hardening: Gradle dependency verification (SHA-256 for all artifacts), NewPipeExtractor pinned by commit, JitPack restricted to NewPipe, Gradle and build image pinned by checksum/digest, no SDK auto-download, Bouncy Castle 1.85 in the build classpath (critical CVE-2026-8763).
 - **2026-11-07:** v0.4.0: related songs under song results, active list for one-tap "+", album and artist search, artist page, Albumteca (save offline, sort by plays/A-Z/Z-A). Persistence refactored into `JsonStore`.
 - **2026-11-07:** v0.3.3: app name written "Esputifai" (not all caps).

@@ -14,6 +14,16 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.NorthWest
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material.icons.rounded.WifiOff
@@ -50,6 +60,8 @@ class SongActions(
 fun SearchScreen(
     query: String,
     onQueryChange: (String) -> Unit,
+    suggestions: List<String>,
+    onSuggestion: (String) -> Unit,
     kind: SearchKind,
     onKindChange: (SearchKind) -> Unit,
     state: SearchState,
@@ -62,8 +74,10 @@ fun SearchScreen(
     onAddAlbum: (Album) -> Unit,
     onOpenArtist: (Artist) -> Unit,
 ) {
+    var typing by remember { mutableStateOf(false) }
+    val focus = LocalFocusManager.current
     Column(Modifier.fillMaxSize()) {
-        SearchField(query, onQueryChange, onSearch)
+        SearchField(query, onQueryChange, onSearch, Modifier.onFocusChanged { typing = it.isFocused })
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             SearchKind.entries.forEachIndexed { i, k ->
                 SegmentedButton(
@@ -72,6 +86,18 @@ fun SearchScreen(
                     shape = SegmentedButtonDefaults.itemShape(i, SearchKind.entries.size),
                 ) { Text(k.label) }
             }
+        }
+        // While typing, suggestions take the place of the results.
+        if (typing && query.isNotBlank() && suggestions.isNotEmpty()) {
+            LazyColumn(Modifier.fillMaxSize()) {
+                items(suggestions, key = { it }) { s ->
+                    SuggestionRow(s, onPick = {
+                        focus.clearFocus()
+                        onSuggestion(s)
+                    }, onFill = { onQueryChange("$s ") })
+                }
+            }
+            return@Column
         }
         if (kind != SearchKind.Artists) activeListBar()
         Box(Modifier.fillMaxSize()) {
@@ -149,13 +175,32 @@ private fun LazyListScope.relatedSection(related: RelatedState, songs: SongActio
 private fun NoResults() =
     EmptyMessage("No hay resultados", "Prueba a escribirlo de otra forma.", Icons.Rounded.SearchOff)
 
+/** A suggestion: tap searches it; the arrow copies it into the box to keep typing. */
 @Composable
-private fun SearchField(query: String, onQueryChange: (String) -> Unit, onSearch: (String) -> Unit) {
+private fun SuggestionRow(text: String, onPick: () -> Unit, onFill: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onPick).padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(16.dp))
+        Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        IconButton(onClick = onFill) { Icon(Icons.Rounded.NorthWest, "Completar sin buscar") }
+    }
+}
+
+@Composable
+private fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val focus = LocalFocusManager.current
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         placeholder = { Text("Canciones, álbumes, artistas…") },

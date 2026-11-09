@@ -1,6 +1,7 @@
 package dev.personal.music.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -28,6 +29,20 @@ class MainActivity : ComponentActivity() {
         setContent {
             MusicTheme { MusicScreen(viewModel) }
         }
+        // Not on recreation (rotation…): the link was already handled.
+        if (savedInstanceState == null) handleLink(intent)
+    }
+
+    // singleTop: a link tapped while the app is open arrives here.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleLink(intent)
+    }
+
+    /** A shared-playlist link (see PlaylistShare) opens the "¿Importar?" dialog. */
+    private fun handleLink(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        intent.dataString?.let(viewModel::receiveShared)
     }
 
     // Pending downloads can only (re)start while the app is visible (Android 12+ rule).

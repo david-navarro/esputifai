@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhoneAndroid
@@ -198,6 +199,7 @@ fun PlaylistDetailScreen(
     onPlay: (List<Track>, Int) -> Unit,
     onShuffle: (List<Track>) -> Unit,
     onRename: (String) -> Unit,
+    onShare: () -> Unit,
     onDelete: () -> Unit,
     onSetOffline: (Boolean) -> Unit,
     onRetry: () -> Unit,
@@ -234,6 +236,7 @@ fun PlaylistDetailScreen(
                         MenuItem("Guardar en el móvil", Icons.Rounded.DownloadForOffline) { menuOpen = false; onSetOffline(true) }
                     }
                     MenuItem("Cambiar nombre", Icons.Rounded.Edit) { menuOpen = false; renaming = true }
+                    if (tracks.isNotEmpty()) MenuItem("Compartir", Icons.Rounded.Share) { menuOpen = false; onShare() }
                     MenuItem("Borrar lista", Icons.Rounded.Delete, MaterialTheme.colorScheme.error) {
                         menuOpen = false
                         confirmingDelete = true

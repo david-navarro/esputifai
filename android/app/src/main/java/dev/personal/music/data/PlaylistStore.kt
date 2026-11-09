@@ -24,8 +24,9 @@ class PlaylistStore(
 
     suspend fun load() = store.load()
 
-    suspend fun create(name: String, offline: Boolean = false): Playlist = store.edit { all ->
-        val p = Playlist(UUID.randomUUID().toString(), cleanName(name), emptyList(), clock(), offline)
+    /** Creates a playlist, empty or with [tracks] (an imported list; repeated songs kept once). */
+    suspend fun create(name: String, offline: Boolean = false, tracks: List<Track> = emptyList()): Playlist = store.edit { all ->
+        val p = Playlist(UUID.randomUUID().toString(), cleanName(name), tracks.distinctBy { it.videoId }, clock(), offline)
         (all + p) to p
     }
 

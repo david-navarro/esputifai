@@ -35,6 +35,26 @@ class CatalogSmokeTest {
     }
 
     @Test
+    fun suggestionsCompleteWhatIsTyped() {
+        val s = YouTubeMusic.suggestions("vetusta mor")
+        println("suggestions: $s")
+        assertTrue("some suggestions", s.isNotEmpty())
+        assertTrue("they complete the query", s.first().startsWith("vetusta morla"))
+        assertTrue("non-music noise dropped", YouTubeMusic.suggestions("rosalia").none { "reaction" in it })
+    }
+
+    @Test
+    fun findsTheAlbumOfASong() {
+        for ((query, album) in listOf("estopa como camarón" to "Estopa", "c tangana tú me dejaste de querer" to "El Madrileño")) {
+            val song = YouTubeMusic.search(query).first()
+            assertEquals(query, album, YouTubeMusic.findAlbum(song)?.title)
+        }
+        // Remasters: the album has the song under another id, found by title.
+        val letItBe = YouTubeMusic.search("the beatles let it be").first()
+        assertTrue(YouTubeMusic.findAlbum(letItBe)?.title.orEmpty().startsWith("Let It Be"))
+    }
+
+    @Test
     fun titleKeyMatchesVideoVersions() {
         val a = Track("1", "DI MI NOMBRE (Cap.8: Éxtasis)", "ROSALÍA", 0, null)
         val b = Track("2", "ROSALÍA - DI MI NOMBRE (Cap.8: Éxtasis) (Official Video)", "ROSALÍA", 0, null)

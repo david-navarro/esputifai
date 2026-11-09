@@ -43,6 +43,44 @@ object YouTubeMusic {
         searchPages(query, YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS, pages = 1)
             .filterIsInstance<ChannelInfoItem>().mapNotNull { it.toArtist() }
 
+    /**
+     * Autocomplete for the search box. YouTube's suggestions are for all of YouTube, so terms
+     * that are never music (reactions, karaoke, tutorials) are dropped.
+     */
+    fun suggestions(query: String): List<String> =
+        ServiceList.YouTube.suggestionExtractor.suggestionList(query)
+            .filterNot { s -> NOT_MUSIC.any { it in s.lowercase() } }
+            .take(8)
+
+    private val NOT_MUSIC = listOf("reaction", "reaccion", "reacción", "react ", "karaoke", "tutorial", "how to")
+
+    /**
+     * The album a song belongs to ("Ir al álbum"). NewPipe's song results carry no album, so this
+     * searches albums for "artist title" and opens the first few: the first one containing the
+     * song wins; failing that (remasters and reissues use other ids), the first one with a song
+     * of the same title. Null if none matches. Takes about a second (one request per album).
+     */
+    fun findAlbum(track: Track): Album? {
+        val candidates = searchAlbums("${track.artist} ${track.title}").take(ALBUM_CANDIDATES)
+        val tracks = mutableMapOf<Album, List<Track>>()
+        for (a in candidates) {
+            val list = runCatching { albumTracks(a) }.getOrDefault(emptyList()).also { tracks[a] = it }
+            if (list.any { it.videoId == track.videoId }) return a
+        }
+        val wanted = looseTitle(track.title)
+        return candidates.firstOrNull { a -> tracks[a].orEmpty().any { looseTitle(it.title) == wanted } }
+    }
+
+    private const val ALBUM_CANDIDATES = 4
+
+    /** "Let It Be (Remastered 2009)" and "Let It Be - Remastered" compare equal to "let it be". */
+    internal fun looseTitle(title: String): String =
+        title.replace(Regex("""[(\[][^)\]]*[)\]]"""), " ")
+            .replace(Regex("""\s+-\s+.*$"""), " ")
+            .lowercase()
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .trim()
+
     /** All songs of an album, in album order, each with the album cover. */
     fun albumTracks(album: Album): List<Track> {
         val info = PlaylistInfo.getInfo(ServiceList.YouTube, album.url)

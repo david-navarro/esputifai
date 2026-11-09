@@ -64,33 +64,3 @@ class AlbumStore(
         }
     }
 }
-
-/**
- * How many times each song has started playing, from anywhere (`plays.json`,
- * `{"version":1,"plays":{"<videoId>":n}}`). Feeds the Albumteca's "Más escuchados" order.
- */
-class PlayCountStore(
-    file: File,
-    io: CoroutineDispatcher = Dispatchers.IO,
-    clock: () -> Long = System::currentTimeMillis,
-) {
-    private val store = JsonStore(file, emptyMap(), ::encode, ::decode, io, clock)
-
-    val plays: StateFlow<Map<String, Int>> = store.state
-
-    suspend fun load() = store.load()
-
-    suspend fun countPlay(videoId: String) =
-        store.edit { m -> (m + (videoId to (m[videoId] ?: 0) + 1)) to Unit }
-
-    companion object {
-        fun encode(plays: Map<String, Int>): JSONObject = JSONObject()
-            .put("version", 1)
-            .put("plays", JSONObject(plays as Map<*, *>))
-
-        fun decode(root: JSONObject): Map<String, Int> {
-            val o = root.getJSONObject("plays")
-            return o.keys().asSequence().associateWith { o.getInt(it) }
-        }
-    }
-}

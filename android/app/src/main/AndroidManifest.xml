@@ -26,6 +26,22 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Shared playlists (see PlaylistShare): the button on the web page... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="esputifai" android:host="import" />
+            </intent-filter>
+            <!-- ...and the link itself. Not verifiable (Pages serves no assetlinks.json at the
+                 domain root), so it opens the browser unless the user enables it in
+                 Settings > Apps > Esputifai > Open by default. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="david-navarro.github.io" android:pathPrefix="/esputifai/l" />
+            </intent-filter>
         </activity>
 
         <service
