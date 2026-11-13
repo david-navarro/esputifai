@@ -13,6 +13,7 @@ lifecycle = "2.11.0"
 coil = "3.6.3"
 junit = "4.13.2"
 org-json = "20250517"
+play-services-auth = "22.0.0"
 
 [libraries]
 newpipe-extractor = { module = "com.github.TeamNewPipe:NewPipeExtractor", version.ref = "newpipe-extractor" }
@@ -30,6 +31,8 @@ lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-com
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 junit = { module = "junit:junit", version.ref = "junit" }
+# Google authorization for device sync (Drive appDataFolder).
+play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "play-services-auth" }
 # Real org.json for JVM tests (the Android stub returns defaults).
 org-json = { module = "org.json:json", version.ref = "org-json" }
 

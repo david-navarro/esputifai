@@ -73,6 +73,20 @@ class CatalogSmokeTest {
     }
 
     @Test
+    fun playlistSearchAndTracks() {
+        val found = YouTubeMusic.searchPlaylists("rock en español")
+        println("playlists (${found.size}): ${found.take(5).map { "${it.title} · ${it.author} · ${it.songCount} · ${it.id}" }}")
+        assertTrue("playlists found", found.size >= 3)
+        val playlist = found.first()
+        val tracks = YouTubeMusic.playlistTracks(playlist)
+        println("tracks (${tracks.size}): ${tracks.take(5).map { "${it.title} · ${it.artist}" }}")
+        assertTrue("a playlist has songs", tracks.size >= 5)
+        assertTrue("capped", tracks.size <= YouTubeMusic.PLAYLIST_MAX_SONGS)
+        assertEquals("no repeated songs", tracks.size, tracks.distinctBy { it.videoId }.size)
+        assertTrue("songs keep their own artwork", tracks.map { it.thumbnailUrl }.distinct().size > 1)
+    }
+
+    @Test
     fun artistPageKeepsOnlyTheirSongsAndAlbums() {
         val artist = YouTubeMusic.searchArtists("rosalía").first()
         println("artist: $artist")

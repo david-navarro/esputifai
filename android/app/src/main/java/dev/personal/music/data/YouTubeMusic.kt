@@ -39,6 +39,11 @@ object YouTubeMusic {
         searchPages(query, YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS, pages = 1)
             .filterIsInstance<PlaylistInfoItem>().mapNotNull { it.toAlbum() }
 
+    /** Public playlists (YouTube Music's "Community playlists" and featured ones). */
+    fun searchPlaylists(query: String): List<OnlinePlaylist> =
+        searchPages(query, YoutubeSearchQueryHandlerFactory.MUSIC_PLAYLISTS, pages = 1)
+            .filterIsInstance<PlaylistInfoItem>().mapNotNull { it.toOnlinePlaylist() }
+
     fun searchArtists(query: String): List<Artist> =
         searchPages(query, YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS, pages = 1)
             .filterIsInstance<ChannelInfoItem>().mapNotNull { it.toArtist() }
@@ -82,17 +87,30 @@ object YouTubeMusic {
             .trim()
 
     /** All songs of an album, in album order, each with the album cover. */
-    fun albumTracks(album: Album): List<Track> {
-        val info = PlaylistInfo.getInfo(ServiceList.YouTube, album.url)
+    fun albumTracks(album: Album): List<Track> =
+        playlistItems(album.url, limit = Int.MAX_VALUE)
+            .map { if (album.thumbnailUrl != null) it.copy(thumbnailUrl = album.thumbnailUrl) else it }
+
+    /**
+     * Songs of a public playlist, in its order, each with its own artwork. Capped at
+     * [PLAYLIST_MAX_SONGS]: some lists have thousands of songs, and each page of 100 is a request.
+     */
+    fun playlistTracks(playlist: OnlinePlaylist): List<Track> =
+        playlistItems(playlist.url, limit = PLAYLIST_MAX_SONGS).distinctBy { it.videoId }
+
+    const val PLAYLIST_MAX_SONGS = 200
+
+    /** The songs of any YouTube playlist URL (albums are playlists too), up to [limit]. */
+    private fun playlistItems(url: String, limit: Int): List<Track> {
+        val info = PlaylistInfo.getInfo(ServiceList.YouTube, url)
         val items = info.relatedItems.toMutableList<InfoItem>()
         var page = info.nextPage
-        while (page != null) { // albums usually fit in one page; long ones don't
-            val more = PlaylistInfo.getMoreItems(ServiceList.YouTube, album.url, page)
+        while (page != null && items.size < limit) { // albums usually fit in one page; long ones don't
+            val more = PlaylistInfo.getMoreItems(ServiceList.YouTube, url, page)
             items += more.items
             page = more.nextPage
         }
-        return items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toTrack() }
-            .map { if (album.thumbnailUrl != null) it.copy(thumbnailUrl = album.thumbnailUrl) else it }
+        return items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toTrack() }.take(limit)
     }
 
     /**
@@ -179,6 +197,17 @@ object YouTubeMusic {
             title = name,
             artist = uploaderName.orEmpty(),
             thumbnailUrl = thumbnails.maxByOrNull { it.width * it.height }?.url?.let(::upscaleThumbnail),
+        )
+    }
+
+    private fun PlaylistInfoItem.toOnlinePlaylist(): OnlinePlaylist? {
+        val id = Regex("[?&]list=([^&]+)").find(url)?.groupValues?.get(1) ?: return null
+        return OnlinePlaylist(
+            id = id,
+            title = name,
+            author = uploaderName.orEmpty(),
+            thumbnailUrl = thumbnails.maxByOrNull { it.width * it.height }?.url?.let(::upscaleThumbnail),
+            songCount = streamCount,
         )
     }
 

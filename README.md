@@ -2,10 +2,15 @@
 
 A personal, serverless Android music player backed by YouTube Music. The phone talks to YouTube directly: search and audio resolution run on-device through [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor), playback through Media3/ExoPlayer. Personal use only; not distributed.
 
-## Status (2026-11-09)
+**Working on the code (humans or AI agents):** start with [`AGENTS.md`](AGENTS.md), the full technical reference (architecture, every file, data formats, flows, conventions, recipes, gotchas). This README keeps the status, the reasons behind decisions and the history.
+
+## Status (2026-11-13)
 
 - **v0.1.0** (search → play → background playback with notification/lock-screen controls) confirmed working on the phone by the owner.
 - **v0.2.0** (local playlists, bigger UI) confirmed working on the phone by the owner. 
+- **v0.8.1 not yet confirmed on a device:** the app version is shown at the foot of the sync dialog (cloud icon in "Mis listas").
+- **v0.8.0 not yet confirmed on a device:** search public YouTube Music playlists ("Listas") and save them in "Mis listas" (see "Public playlists" below).
+- **v0.7.0 not yet confirmed on a device:** device sync through Google Drive (see "Device sync" below). Sharing playlists by WhatsApp link (v0.5.1) confirmed working by the owner.
 - **v0.6.0 not yet confirmed on a device:** R8 shrinking (APK 17.6 → 3.6 MB; NewPipe's reflection must still work: search and play), "Reproduciendo" panel with seek bar and queue.
 - **v0.5.1 not yet confirmed on a device:** plays count only when a song ends, tapping the playing song doesn't restart it, long press on a song → "Ir al álbum", share playlists by link (see below).
 - **v0.5.0 not yet confirmed on a device:** search autocomplete, play counter on every song, "Top" tab (see below).
@@ -28,7 +33,9 @@ android/                      Gradle project
       Track.kt                Track (UI/queue model), ResolvedAudio (direct URL + size + expiry)
       Album.kt                Album, Artist, LibraryAlbum (Albumteca entry), album sort orders
       JsonStore.kt            generic "value persisted as one JSON file" used by all stores
-      LibraryStores.kt        AlbumStore (albums.json), PlayCountStore (plays.json)
+      LibraryStores.kt        AlbumStore (albums.json)
+      PlayHistory.kt          PlayCountStore (plays.json = this device, plays-others.json = other devices)
+      SyncMerge.kt            pure device-sync merge rules (latest change wins, deletions, plays added up)
       RelatedSongs.kt         "Relacionadas": paged, de-duplicated YouTube Music radio
       Playlist.kt             local playlist model
       PlaylistStore.kt        playlists persisted as files/playlists.json (atomic writes, StateFlow)
@@ -38,6 +45,9 @@ android/                      Gradle project
     playback/
       YouTubeDataSource.kt    ExoPlayer DataSource for ytm://track/<videoId>: lazy resolve + chunked reads
       PlaybackService.kt      MediaSessionService owning ExoPlayer (notification, lock screen, focus)
+    sync/
+      DriveAppData.kt         Google authorization + Drive REST on the app's hidden appDataFolder
+      DeviceSync.kt           when to sync, one file per device, status for the UI
     offline/
       OfflineRules.kt         pure rules: which songs must be on the phone, sync plan, progress
       OfflineAudio.kt         SimpleCache + DownloadManager + network state; playback data source
@@ -46,18 +56,21 @@ android/                      Gradle project
       MainActivity.kt         edge-to-edge, notification permission, sets Compose content
       MusicViewModel.kt       search, playlists actions, snackbar messages, MediaController → NowPlaying
       MusicScreen.kt          shell: bottom tabs (Buscar / Mis listas), player bar, snackbars
-      SearchScreen.kt         search field, Canciones/Álbumes/Artistas selector, results, Relacionadas
+      SearchScreen.kt         search field, Canciones/Álbumes/Artistas/Listas selector, results, Relacionadas
+      OnlinePlaylistScreen.kt page of a public YouTube Music playlist (play, shuffle, save in Mis listas)
       AlbumScreens.kt         Albumteca tab and the album page
       ArtistScreen.kt         artist page (songs on top, albums below)
       PlaylistScreens.kt      "Mis listas" and one playlist (play, shuffle, move, remove, rename, delete)
       AddToPlaylistSheet.kt   bottom panel to toggle a song in/out of playlists
       Components.kt           shared pieces: TrackRow, artwork, big button, dialogs
+      SyncDialog.kt           cloud button in "Mis listas" and the sync dialog (also shows the app version)
       Theme.kt                Material You colors
   app/src/test/.../YouTubeMusicSmokeTest.kt   real-network smoke test of the data path
   app/src/test/.../PlaylistStoreTest.kt       playlist store round-trip with real search results
   app/src/test/.../OfflineRulesTest.kt        saved/streaming rules (lists and albums)
-  app/src/test/.../CatalogSmokeTest.kt        related songs, albums, artists against real YouTube Music
+  app/src/test/.../CatalogSmokeTest.kt        related songs, albums, artists, playlists against real YouTube Music
   app/src/test/.../AlbumtecaTest.kt           album order, albums/plays persistence
+  app/src/test/.../SyncMergeTest.kt           two simulated devices syncing: lists, deletions, albums, plays
 ```
 
 ## Build, test, install
@@ -99,13 +112,15 @@ Install by copying the APK to the phone and opening it (sideloading; allow "inst
 
 AGP 9 notes: unit tests exist only for the debug variant (`testDebugUnitTest`). JVM tests set `unitTests.isReturnDefaultValues = true` because OkHttp's Android artifact calls `android.util.Log`.
 
-**Playlists (local).** Stored only on the phone in `files/playlists.json` (`{"version":1,"playlists":[{id,name,createdAtMs,tracks:[Track…]}]}`), not synced with any YouTube account (owner's choice). A JSON file instead of Room: few lists, always read whole, no build plugins. Every change is written (temp file + rename) before the UI state updates. An unreadable file is renamed to `playlists.json.unreadable-<ms>`, never overwritten. A song appears at most once per list. Uninstalling the app deletes the playlists; the signing key matters for this too.
+**Playlists (local).** Stored on the device in `files/playlists.json` (v2: `{"version":2,"playlists":[{id,name,createdAtMs,updatedAtMs,offline,tracks:[Track…]}],"deleted":{"<id>":<ms>}}`), never synced with any YouTube account (owner's choice); between the user's own devices see "Device sync". A JSON file instead of Room: few lists, always read whole, no build plugins. Every change is written (temp file + rename) before the UI state updates. An unreadable file is renamed to `playlists.json.unreadable-<ms>`, never overwritten. A song appears at most once per list. Uninstalling the app deletes the playlists; the signing key matters for this too.
 
 **Saved playlists (offline).** Decided with the owner (2026-11-07): the choice is per playlist only, never per song. Each list is "En streaming" or "Guardada en el móvil", chosen in the "Nueva lista" dialog and changeable later from the list's "⋮" menu (switching to streaming asks for confirmation). Rules (`OfflineRules.kt`): a song is on the phone iff it is in at least one saved list; adding a song to a saved list downloads it; removing it, switching the list to streaming or deleting the list frees only the songs no other saved list needs. Downloads use any network (Wi-Fi or mobile data, owner's choice; ~4 MB per song).
 
 How: `OfflineAudio` owns a `SimpleCache` (`files/offline-audio`, no eviction) and a Media3 `DownloadManager` whose upstream is `YouTubeDataSource`; cache key = videoId. `MusicApp` re-syncs the manager with the playlists on every change. The player reads through a read-only `CacheDataSource`: a fully cached song is read from disk and the upstream (URL resolution, network) is never opened (checked in Media3 1.11.1 source, `CacheDataSource.openNextSource`); plain streaming never writes to the cache. `AudioDownloadService` has no scheduler: on Android 12+ Media3 doesn't use one, so `OfflineAudio` restarts the service when the app comes to the foreground or the network returns while it is open. Failed downloads are retried only from the "Reintentar" button. `PlaybackService` skips songs that fail to play (e.g. offline and not saved), at most once around the queue.
 
 **Search, related songs, albums, artists (v0.4.0).** The search has a Canciones / Álbumes / Artistas selector (remembered). Song results are followed by "Relacionadas": the first result's YouTube Music radio (`RDAMVM<videoId>`), 10 at a time with "Más relacionadas", loaded after the results so they never wait for it. The radio's pages overlap and later bring video versions of songs already given, so `RelatedSongs` de-duplicates by videoId and by a normalized title (`titleKey`) and skips the search results. Artist pages: NewPipe gives no usable tabs for YouTube Music artist channels ("<name> - Topic", zero tabs; checked 2026-11-07), so `artistSongs`/`artistAlbums` search by the artist's name and keep only results whose uploader URL is the artist's channel id (drops namesakes). One page, owner's choice: 5 popular songs ("Ver todas") then albums.
+
+**Public playlists (v0.8.0).** A fourth search kind, "Listas", finds public YouTube Music playlists (NewPipe's `music_playlists` filter: labels' and users' lists). Opening one shows its songs (`YouTubeMusic.playlistTracks`, at most 200, since some lists have thousands and each page of 100 is a request) with play, shuffle and "+". "Guardar en Mis listas" copies the songs into a new local streaming list (name suffixed " (2)" if taken), which from then on is the user's own and never follows the original (owner's model: playlists are local; nothing is tied to a YouTube account). Checked on real data 2026-11-13: 20 results for "rock en español", 132 songs in the first. YouTube gives no song count in search results, and in users' lists the "artist" is sometimes the channel that uploaded the video.
 
 **Active list.** "+" next to any song (results, related, album, artist, player) adds it with one tap to the active list, with "Deshacer". Long press opens the panel to pick lists. The active list shows in an "Añadir a: [lista ▾]" bar above song lists, where it is changed or a new one created. The first list created or chosen becomes active automatically. Stored in SharedPreferences (`ui`).
 
@@ -118,7 +133,14 @@ How: `OfflineAudio` owns a `SimpleCache` (`files/offline-audio`, no eviction) an
 
 **Autocomplete.** NewPipe's YouTube suggestion extractor (Google's suggest endpoint, ~100 ms), 250 ms debounce, terms that are never music ("reaction", "karaoke", "tutorial"…) dropped. Suggestions are plain queries, so they work for songs, albums and artists alike. While the box has focus they replace the results; the arrow fills the box without searching.
 
-**Debug build.** `assembleDebug` installs next to the real app (`dev.personal.music.probe`, "Esputifai prueba") and carries throwaway probes in `src/debug` (currently: sync through a Google Drive file opened via the system picker).
+**Debug build.** `assembleDebug` installs next to the real app (`dev.personal.music.probe`, "Esputifai prueba"); it has its own OAuth client, so it can sync too (as one more device).
+
+**Device sync (v0.7.0).** Playlists, Albumteca and plays are the same on all of one person's devices (phone, tablet…), each person with their own Google account. Turned on from the cloud icon in "Mis listas" → "Sincronizar con Google" on each device.
+- *Transport:* the Drive REST API on the app's hidden `appDataFolder`, scope `drive.appdata` only (the app can't see any other file). Chosen after two probes (2026-11-10/13): a Drive file opened through the system picker (no Google Cloud project) never showed changes made on another device until it was picked again, so it can't sync by itself; the REST API showed every write on the other device at once. Wi-Fi-only device-to-device sync was considered and dropped (needs both apps open at the same time).
+- *Google Cloud setup (once, by the owner):* project with the Drive API enabled; OAuth consent screen, external, **published** (in "Testing" sign-ins expire every 7 days), with only `drive.appdata` (non-sensitive: no Google review), home page and privacy policy on GitHub Pages (`docs/privacy/`); one Android OAuth client per package name (`dev.personal.music`, `dev.personal.music.probe`) with the signing certificate's SHA-1. No client id or secret in the code: Play services identifies the app by package + certificate. A new signing key needs new clients.
+- *Data:* each device writes only its own file `device-<random id>.json` (whole library with deletion markers + only its own plays) and reads the others', so devices never overwrite each other. Merge rules in `SyncMerge.kt`: per playlist the latest change wins as a whole (`updatedAtMs`); deletions are remembered and win over older changes; albums are versioned by `addedAtMs`; "Guardada en el móvil" stays a per-device choice; plays are added up (each device counts only its own, so syncing again never double-counts). The other devices' plays are kept in `plays-others.json` so totals survive restarts offline.
+- *When:* 5 s after any local change (also with the screen off while music plays), on coming to the front and every minute while on screen. Each round is one list request plus downloads of the files that changed. The status (synced at HH:mm with N devices, error, Google wants sign-in again) is in the dialog; errors retry by themselves.
+- *Known limits:* two devices changing the same list within one round → one change is lost; clocks of the devices are trusted for "latest"; a reinstalled app is a new device (its old file keeps counting its plays, which keeps the history).
 
 **Tapping the playing song** does nothing to it (owner's rule): `play()` keeps it going and only rebuilds the queue around it (remove + add, so the session's `onAddMediaItems` restores URIs).
 
@@ -161,12 +183,11 @@ scripts/build-apk.sh --write-verification-metadata sha256 assembleRelease testDe
 
 Open, in no fixed order:
 
-- **Sync between one person's devices** (phone + tablet): playlists, Albumteca and plays through a file in the user's own Google Drive, no Google Cloud project. A probe (`src/debug`) is checking whether Drive's file provider is fresh enough; if not, the Drive API is the fallback. Needs per-item merge (timestamps, deletion markers, per-device play counters).
 - **Autoplay radio:** when the queue ends, continue with related tracks (`RDAMVM<videoId>`, as "Relacionadas").
-- **Backup/export** of the Albumteca and plays (playlists can already be shared as links); uninstalling loses them.
+- **Backup/export** to a file. With sync on, Google Drive already keeps a copy of everything.
 - **iPhone:** being considered; would be a separate native project (NewPipeExtractor is Java).
 
-Dropped: a full-screen player (the "Reproduciendo" panel covers seek and queue); Google account sign-in.
+Dropped: a full-screen player (the "Reproduciendo" panel covers seek and queue).
 
 ## Contributing
 
@@ -207,6 +228,9 @@ This is an independent personal project, not affiliated with YouTube, Google or 
 
 - **2026-11-07:** Started as a FastAPI backend (ytmusicapi search + yt-dlp ranged audio proxy, Subsonic API layer for Symfonium/Tempo). The owner found the server + third-party client setup confusing and wanted a self-contained app, so the backend was stopped and deleted the same day. Lessons kept: YouTube stream URLs from yt-dlp's TV client return 403 until their `available_at` time, and googlevideo URLs are IP-locked, so on-device resolution avoids both issues.
 - **2026-11-07:** Android app v0.1.0 (this repo).
+- **2026-11-13:** v0.8.1: app version shown in the sync dialog.
+- **2026-11-13:** v0.8.0: search and save public YouTube Music playlists; `AGENTS.md` technical reference for AI agents.
+- **2026-11-13:** v0.7.0: device sync through each user's Google Drive (`drive.appdata`), after two probes on real devices; privacy policy page for the consent screen.
 - **2026-11-09:** v0.6.0: R8 (APK 17.6 → 3.6 MB), "Reproduciendo" panel with seek bar and queue. CLAUDE.md and soul.md taken out of the public repo.
 - **2026-11-09:** v0.5.1: plays counted on song end, playing song not restarted on tap, "Ir al álbum" on long press, playlist sharing via GitHub Pages link.
 - **2026-11-09:** v0.5.0: search autocomplete, play counter on songs, "Top" tab (songs, artists, albums); play history stores song details (`plays.json` v2).

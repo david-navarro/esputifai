@@ -7,6 +7,8 @@ import dev.personal.music.data.PlaylistStore
 import dev.personal.music.data.YouTubeMusic
 import dev.personal.music.offline.OfflineAudio
 import dev.personal.music.offline.wantedOnPhone
+import dev.personal.music.sync.DeviceSync
+import dev.personal.music.sync.DriveAppData
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -39,6 +41,11 @@ class MusicApp : Application() {
     lateinit var offline: OfflineAudio
         private set
 
+    /** Same library on all the user's devices, through their Google Drive (off until turned on). */
+    val sync: DeviceSync by lazy {
+        DeviceSync(this, DriveAppData(this, httpClient), playlists, albums, plays, appScope)
+    }
+
     override fun onCreate() {
         super.onCreate()
         YouTubeMusic.init(httpClient)
@@ -50,5 +57,6 @@ class MusicApp : Application() {
             albums.load()
             combine(playlists.playlists, albums.albums, ::wantedOnPhone).collect { offline.sync(it) }
         }
+        sync.start()
     }
 }

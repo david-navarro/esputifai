@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.foundation.clickable
@@ -42,9 +43,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.personal.music.data.Album
 import dev.personal.music.data.Artist
+import dev.personal.music.data.OnlinePlaylist
 import dev.personal.music.data.Track
 
 /** What every song row needs to know and do; shared by search, album and artist screens. */
@@ -73,6 +76,7 @@ fun SearchScreen(
     onOpenAlbum: (Album) -> Unit,
     onAddAlbum: (Album) -> Unit,
     onOpenArtist: (Artist) -> Unit,
+    onOpenPlaylist: (OnlinePlaylist) -> Unit,
 ) {
     var typing by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
@@ -84,7 +88,9 @@ fun SearchScreen(
                     selected = k == kind,
                     onClick = { onKindChange(k) },
                     shape = SegmentedButtonDefaults.itemShape(i, SearchKind.entries.size),
-                ) { Text(k.label) }
+                    // No check mark: four labels must fit on a phone; the fill shows the choice.
+                    icon = {},
+                ) { Text(k.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
         // While typing, suggestions take the place of the results.
@@ -99,7 +105,8 @@ fun SearchScreen(
             }
             return@Column
         }
-        if (kind != SearchKind.Artists) activeListBar()
+        // Only where songs can be added with "+" straight from the results.
+        if (kind == SearchKind.Songs || kind == SearchKind.Albums) activeListBar()
         Box(Modifier.fillMaxSize()) {
             when (state) {
                 SearchState.Idle -> EmptyMessage(
@@ -107,6 +114,7 @@ fun SearchScreen(
                         SearchKind.Songs -> "Busca una canción"
                         SearchKind.Albums -> "Busca un álbum"
                         SearchKind.Artists -> "Busca un artista"
+                        SearchKind.Playlists -> "Busca una lista"
                     },
                     "Escribe arriba y pulsa buscar en el teclado.",
                     Icons.Rounded.Search,
@@ -136,6 +144,20 @@ fun SearchScreen(
                     if (state.artists.isEmpty()) NoResults()
                     else LazyColumn(Modifier.fillMaxSize()) {
                         items(state.artists, key = { it.channelId }) { a -> ArtistRow(a) { onOpenArtist(a) } }
+                    }
+                is SearchState.Playlists ->
+                    if (state.playlists.isEmpty()) NoResults()
+                    else LazyColumn(Modifier.fillMaxSize()) {
+                        items(state.playlists, key = { it.id }) { p ->
+                            CoverRow(p.thumbnailUrl, p.title, playlistSubtitle(p), onClick = { onOpenPlaylist(p) }) {
+                                Icon(
+                                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(end = 12.dp),
+                                )
+                            }
+                        }
                     }
             }
         }
@@ -171,6 +193,13 @@ private fun LazyListScope.relatedSection(related: RelatedState, songs: SongActio
     }
 }
 
+/** "Lista · Warner Music Spain · 50 canciones" (YouTube often gives no song count). */
+fun playlistSubtitle(p: OnlinePlaylist) = listOfNotNull(
+    "Lista",
+    p.author.ifBlank { null },
+    p.songCount.takeIf { it > 0 }?.let { songCount(it.toInt()) },
+).joinToString(" · ")
+
 @Composable
 private fun NoResults() =
     EmptyMessage("No hay resultados", "Prueba a escribirlo de otra forma.", Icons.Rounded.SearchOff)
@@ -203,7 +232,7 @@ private fun SearchField(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        placeholder = { Text("Canciones, álbumes, artistas…") },
+        placeholder = { Text("Canciones, álbumes, artistas, listas…") },
         leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
         trailingIcon = {
             if (query.isNotEmpty()) {

@@ -2,6 +2,9 @@ package dev.personal.music.ui
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.combinedClickable
@@ -59,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.personal.music.data.Album
 import dev.personal.music.data.Artist
+import dev.personal.music.data.OnlinePlaylist
 import dev.personal.music.data.Track
 
 private enum class Tab(val label: String, val icon: ImageVector) {
@@ -73,6 +77,7 @@ private sealed interface Route {
     data class PlaylistPage(val id: String) : Route
     data class AlbumPage(val album: Album) : Route
     data class ArtistPage(val artist: Artist) : Route
+    data class OnlinePlaylistPage(val playlist: OnlinePlaylist) : Route
 }
 
 /**
@@ -100,6 +105,16 @@ fun MusicScreen(vm: MusicViewModel) {
     val savedAudio by vm.savedAudio.collectAsStateWithLifecycle()
     val online by vm.online.collectAsStateWithLifecycle()
     var showingStorage by remember { mutableStateOf(false) }
+    val syncStatus by vm.syncStatus.collectAsStateWithLifecycle()
+    val savedOnline by vm.savedOnline.collectAsStateWithLifecycle()
+    var showingSync by remember { mutableStateOf(false) }
+    // Google's account / permission screen, when turning sync on needs it.
+    val googleScreen = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        vm.onSyncGoogleResult(it.data)
+    }
+    val turnOnSync = {
+        vm.turnOnSync { screen -> googleScreen.launch(IntentSenderRequest.Builder(screen.intentSender).build()) }
+    }
 
     var tab by rememberSaveable { mutableStateOf(Tab.Search) }
     val stacks = remember { mutableStateMapOf<Tab, List<Route>>() }
@@ -236,6 +251,16 @@ fun MusicScreen(vm: MusicViewModel) {
                     onOpenAlbum = { push(Route.AlbumPage(it)) },
                     onAddAlbum = vm::addToAlbumteca,
                 )
+                is Route.OnlinePlaylistPage -> OnlinePlaylistScreen(
+                    playlist = route.playlist,
+                    loadTracks = vm::onlinePlaylistTracks,
+                    songs = songs,
+                    activeListBar = activeListBar,
+                    // The local copy's current name; null if not saved or since deleted.
+                    savedAs = savedOnline[route.playlist.id]?.let { id -> playlists.find { it.id == id }?.name },
+                    onBack = ::pop,
+                    onSave = { vm.saveOnlinePlaylist(route.playlist, it) },
+                )
                 is Route.PlaylistPage -> {
                     val open = playlists.find { it.id == route.id }
                     if (open == null) {
@@ -291,6 +316,7 @@ fun MusicScreen(vm: MusicViewModel) {
                         onOpenAlbum = { push(Route.AlbumPage(it)) },
                         onAddAlbum = vm::addToAlbumteca,
                         onOpenArtist = { push(Route.ArtistPage(it)) },
+                        onOpenPlaylist = { push(Route.OnlinePlaylistPage(it)) },
                     )
                     Tab.Playlists -> PlaylistsScreen(
                         playlists,
@@ -300,6 +326,8 @@ fun MusicScreen(vm: MusicViewModel) {
                         onCreate = { name, offline -> vm.createPlaylist(name, offline) },
                         savedAlbums = albums.count { it.offline },
                         onShowStorage = { showingStorage = true },
+                        syncStatus = syncStatus,
+                        onOpenSync = { showingSync = true },
                     )
                     Tab.Albums -> AlbumtecaScreen(
                         albums = albums,
@@ -407,6 +435,16 @@ fun MusicScreen(vm: MusicViewModel) {
             onToggle = { vm.toggleInPlaylist(it, track) },
             onCreateWithTrack = { name, offline -> vm.createPlaylist(name, offline, track) },
             onDismiss = { addingTrack = null },
+        )
+    }
+
+    if (showingSync) {
+        SyncDialog(
+            status = syncStatus,
+            onTurnOn = { turnOnSync() },
+            onSyncNow = vm::syncNow,
+            onTurnOff = vm::turnOffSync,
+            onDismiss = { showingSync = false },
         )
     }
 

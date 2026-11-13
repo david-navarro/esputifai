@@ -68,6 +68,7 @@ import dev.personal.music.data.Track
 import dev.personal.music.offline.OfflineProgress
 import dev.personal.music.offline.SaveState
 import dev.personal.music.offline.SavedAudio
+import dev.personal.music.sync.SyncStatus
 import dev.personal.music.offline.formatBytes
 import dev.personal.music.offline.progressOf
 
@@ -81,16 +82,20 @@ fun PlaylistsScreen(
     onCreate: (name: String, offline: Boolean) -> Unit,
     savedAlbums: Int,
     onShowStorage: () -> Unit,
+    syncStatus: SyncStatus,
+    onOpenSync: () -> Unit,
 ) {
     var creating by remember { mutableStateOf(false) }
     val savedLists = playlists.filter { it.offline }
 
     Column(Modifier.fillMaxSize()) {
-        Text(
-            "Mis listas",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Mis listas", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            SyncButton(syncStatus, onOpenSync)
+        }
         if (playlists.isEmpty()) {
             EmptyMessage(
                 "Todavía no tienes listas",

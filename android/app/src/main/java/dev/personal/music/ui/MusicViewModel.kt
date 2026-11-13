@@ -1,6 +1,8 @@
 package dev.personal.music.ui
 
 import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
@@ -18,6 +20,7 @@ import dev.personal.music.data.Album
 import dev.personal.music.data.AlbumOrder
 import dev.personal.music.data.Artist
 import dev.personal.music.data.LibraryAlbum
+import dev.personal.music.data.OnlinePlaylist
 import dev.personal.music.data.Playlist
 import dev.personal.music.data.PlaylistShare
 import dev.personal.music.data.SharedPlaylist
@@ -30,6 +33,7 @@ import dev.personal.music.data.YouTubeMusic
 import dev.personal.music.offline.SavedAudio
 import dev.personal.music.playback.PlaybackService
 import dev.personal.music.playback.YouTubeDataSource
+import dev.personal.music.sync.SyncStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -56,6 +60,7 @@ enum class SearchKind(val label: String) {
     Songs("Canciones"),
     Albums("Álbumes"),
     Artists("Artistas"),
+    Playlists("Listas"),
 }
 
 sealed interface SearchState {
@@ -64,6 +69,7 @@ sealed interface SearchState {
     data class Songs(val tracks: List<Track>, val related: RelatedState) : SearchState
     data class Albums(val albums: List<Album>) : SearchState
     data class Artists(val artists: List<Artist>) : SearchState
+    data class Playlists(val playlists: List<OnlinePlaylist>) : SearchState
     data class Error(val message: String) : SearchState
 }
 
@@ -130,6 +136,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     private val offline = (app as MusicApp).offline
     private val albumStore = (app as MusicApp).albums
     private val playCounts = (app as MusicApp).plays
+    private val sync = (app as MusicApp).sync
     private val prefs = app.getSharedPreferences("ui", Context.MODE_PRIVATE)
 
     /** Download state of saved songs, by videoId. */
@@ -210,8 +217,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     private var relatedJob: Job? = null
     private var lastQuery = ""
 
-    // Album and artist pages fetched this session; YouTube is slow and they rarely change.
+    // Album, artist and playlist pages fetched this session; YouTube is slow and they rarely change.
     private val albumTrackCache = mutableMapOf<String, List<Track>>()
+    private val playlistTrackCache = mutableMapOf<String, List<Track>>()
     private val artistCache = mutableMapOf<String, ArtistPage>()
 
     private val _messages = Channel<UiMessage>(Channel.BUFFERED)
@@ -273,6 +281,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
                         SearchKind.Songs -> SearchState.Songs(YouTubeMusic.search(q), RelatedState())
                         SearchKind.Albums -> SearchState.Albums(YouTubeMusic.searchAlbums(q))
                         SearchKind.Artists -> SearchState.Artists(YouTubeMusic.searchArtists(q))
+                        SearchKind.Playlists -> SearchState.Playlists(YouTubeMusic.searchPlaylists(q))
                     }
                 }
             } catch (e: Exception) {
@@ -290,7 +299,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Switches between songs, albums and artists, repeating the last search. */
+    /** Switches between songs, albums, artists and playlists, repeating the last search. */
     fun setSearchKind(kind: SearchKind) {
         if (kind == _searchKind.value) return
         _searchKind.value = kind
@@ -396,6 +405,30 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun setAlbumOrder(order: AlbumOrder) {
         _albumOrder.value = order
         prefs.edit().putString(KEY_ALBUM_ORDER, order.name).apply()
+    }
+
+    // --- Public playlists ("Listas" in Buscar) ---
+
+    suspend fun onlinePlaylistTracks(playlist: OnlinePlaylist): List<Track> {
+        playlistTrackCache[playlist.id]?.let { return it }
+        return withContext(Dispatchers.IO) { YouTubeMusic.playlistTracks(playlist) }
+            .also { playlistTrackCache[playlist.id] = it }
+    }
+
+    private val _savedOnline = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /**
+     * Public playlists saved in "Mis listas" during this session: YouTube id -> local list id. Only
+     * so the page says "En Mis listas" instead of offering to save it twice; not persisted.
+     */
+    val savedOnline: StateFlow<Map<String, String>> = _savedOnline.asStateFlow()
+
+    /** "Guardar en Mis listas": copies the songs into a new local streaming list. */
+    fun saveOnlinePlaylist(playlist: OnlinePlaylist, tracks: List<Track>) = viewModelScope.launch {
+        val name = freeName(playlist.title)
+        val created = store.create(name, offline = false, tracks = tracks)
+        _savedOnline.update { it + (playlist.id to created.id) }
+        say("Lista «$name» guardada en Mis listas")
     }
 
     // --- Active list ---
@@ -514,12 +547,17 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun importIncoming() = viewModelScope.launch {
         val shared = _incoming.value ?: return@launch
         _incoming.value = null
-        val taken = store.playlists.value.map { it.name }.toSet()
-        val name = generateSequence(1) { it + 1 }
-            .map { if (it == 1) shared.name else "${shared.name} ($it)" }
-            .first { it !in taken }
+        val name = freeName(shared.name)
         store.create(name, offline = false, tracks = shared.tracks)
         say("Lista «$name» importada")
+    }
+
+    /** [wanted], or "[wanted] (2)", "(3)"… if a list already has that name. */
+    private fun freeName(wanted: String): String {
+        val taken = store.playlists.value.map { it.name }.toSet()
+        return generateSequence(1) { it + 1 }
+            .map { if (it == 1) wanted else "$wanted ($it)" }
+            .first { it !in taken }
     }
 
     /** The text to send for [playlist]: a sentence and its link. */
@@ -554,6 +592,29 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun setPlaylistOffline(playlist: Playlist, offline: Boolean) = viewModelScope.launch {
         store.setOffline(playlist.id, offline)
         say(if (offline) "Guardando «${playlist.name}» en el móvil" else "«${playlist.name}» pasa a streaming")
+    }
+
+    /** How device sync is doing (see DeviceSync). */
+    val syncStatus: StateFlow<SyncStatus> = sync.status
+
+    /** "Sincronizar con Google": [showGoogle] shows Google's account/permission screen if needed. */
+    fun turnOnSync(showGoogle: (PendingIntent) -> Unit) = viewModelScope.launch {
+        val screen = sync.turnOn()
+        when {
+            screen != null -> showGoogle(screen)
+            sync.status.value !is SyncStatus.Failed -> say("Sincronización activada")
+        }
+    }
+
+    /** The result of Google's screen opened by [turnOnSync]. */
+    fun onSyncGoogleResult(data: Intent?) =
+        say(if (sync.onGoogleResult(data)) "Sincronización activada" else "No se ha dado permiso a Google Drive")
+
+    fun syncNow() = sync.syncSoon()
+
+    fun turnOffSync() {
+        sync.turnOff()
+        say("Sincronización desactivada en este dispositivo")
     }
 
     /** Everything saved (lists and albums) back to streaming. */

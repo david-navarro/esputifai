@@ -25,8 +25,8 @@ android {
         applicationId = "dev.personal.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.6.0"
+        versionCode = 13
+        versionName = "0.8.1"
     }
 
     signingConfigs {
@@ -42,14 +42,14 @@ android {
 
     buildTypes {
         release {
-            // No R8 for now: NewPipeExtractor needs keep rules; revisit if APK size matters.
+            // R8 since v0.6.0; proguard-rules.pro keeps what NewPipeExtractor loads by reflection.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
         debug {
-            // Installs next to the real app; also carries throwaway probes (src/debug).
+            // Installs next to the real app ("Esputifai prueba"), e.g. to test sync with two copies.
             applicationIdSuffix = ".probe"
             // The container has no persistent ~/.android/debug.keystore; reuse our key.
             signingConfig = signingConfigs.getByName("release")
@@ -93,6 +93,8 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.okhttp)
+
+    implementation(libs.play.services.auth)
 
     testImplementation(libs.junit)
     testImplementation(libs.org.json)

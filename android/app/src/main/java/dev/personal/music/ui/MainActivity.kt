@@ -49,10 +49,12 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         (application as MusicApp).offline.inForeground = true
+        (application as MusicApp).sync.setForeground(true)
     }
 
     override fun onStop() {
         (application as MusicApp).offline.inForeground = false
+        (application as MusicApp).sync.setForeground(false)
         super.onStop()
     }
 }

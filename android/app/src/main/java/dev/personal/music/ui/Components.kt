@@ -490,6 +490,16 @@ fun AlbumRow(
     subtitle: String,
     onClick: () -> Unit,
     trailing: @Composable RowScope.() -> Unit = {},
+) = CoverRow(album.thumbnailUrl, album.title, subtitle, onClick, trailing)
+
+/** A square cover, a title, a subtitle and an action at the end: albums and public playlists. */
+@Composable
+fun CoverRow(
+    thumbnailUrl: String?,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    trailing: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
         Modifier
@@ -498,10 +508,10 @@ fun AlbumRow(
             .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Artwork(album.thumbnailUrl, 52)
+        Artwork(thumbnailUrl, 52)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 subtitle,
                 maxLines = 1,

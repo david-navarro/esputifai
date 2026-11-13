@@ -13,6 +13,22 @@ data class Album(
     val url get() = "https://music.youtube.com/playlist?list=$id"
 }
 
+/**
+ * A public YouTube Music playlist found by search ("Listas"), by labels or users; [id] is its
+ * playlist id (`PL…`). Unlike [Playlist], it lives on YouTube; saving it in "Mis listas" copies
+ * its songs into a local [Playlist]. [songCount] is -1 when YouTube doesn't say (search results
+ * never did as of 2026-11-13).
+ */
+data class OnlinePlaylist(
+    val id: String,
+    val title: String,
+    val author: String,
+    val thumbnailUrl: String?,
+    val songCount: Long,
+) {
+    val url get() = "https://music.youtube.com/playlist?list=$id"
+}
+
 /** A YouTube Music artist. [channelId] identifies their songs and albums in search results. */
 data class Artist(
     val channelId: String,
@@ -32,6 +48,12 @@ data class LibraryAlbum(
 ) {
     val id get() = album.id
 }
+
+/** The Albumteca plus when each removed album was removed (by id), for sync; see [PlaylistLibrary]. */
+data class AlbumLibrary(
+    val albums: List<LibraryAlbum> = emptyList(),
+    val deleted: Map<String, Long> = emptyMap(),
+)
 
 enum class AlbumOrder(val label: String) {
     MostPlayed("Más escuchados"),

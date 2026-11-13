@@ -21,7 +21,7 @@ class TopTest {
     fun historySurvivesReopenWithSongDetailsAndAlbums() = runBlocking {
         val file = dir.root.resolve("plays.json")
         var now = 1_000L
-        val s = PlayCountStore(file, Dispatchers.Unconfined) { now }
+        val s = PlayCountStore(file, Dispatchers.Unconfined, clock = { now })
         s.countPlay(t("a")); now = 2_000L; s.countPlay(t("a"))
         val album = Album("OLAK5uy_x", "Motomami", "ROSALÍA", null)
         s.rememberAlbum(album, listOf(t("a"), t("b")))
